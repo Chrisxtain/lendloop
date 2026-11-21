@@ -200,6 +200,16 @@ describe("admin", () => {
     expect((await admin.query(api.admin.listLoans, {})).length).toBe(1);
   });
 
+  test("a member without a name gets a neutral handle, never part of their email", async () => {
+    const { t, bob } = await setup();
+    const noName = t.withIdentity({ subject: "nn", email: "secret.person@example.com" });
+    await noName.mutation(api.users.store, {});
+    await noName.mutation(api.tools.create, drill);
+    const board = await bob.query(api.tools.list, {});
+    expect(board[0].owner.name).toMatch(/^Neighbour [0-9A-Z]{4}$/);
+    expect(JSON.stringify(board)).not.toContain("secret");
+  });
+
   test("users never see other members' emails", async () => {
     const { alice, bob } = await setup();
     await alice.mutation(api.tools.create, drill);

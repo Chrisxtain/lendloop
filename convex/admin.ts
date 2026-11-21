@@ -83,6 +83,24 @@ export const removeTool = mutation({
   },
 });
 
+export const listAuditLog = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const rows = await ctx.db.query("auditLog").order("desc").take(50);
+    return Promise.all(
+      rows.map(async (r) => ({
+        _id: r._id,
+        actor: (await publicName(ctx, r.actorId)).name,
+        action: r.action,
+        target: r.target,
+        detail: r.detail ?? null,
+        at: r.at,
+      })),
+    );
+  },
+});
+
 export const listAutomationErrors = query({
   args: {},
   handler: async (ctx) => {

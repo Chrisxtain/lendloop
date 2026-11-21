@@ -1,12 +1,10 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { clerkMiddleware } from "@clerk/nextjs/server";
 
-// Route protection here is a UX convenience only (redirect to sign-in).
-// The real authorization boundary is inside every Convex function.
-const isProtected = createRouteMatcher(["/board(.*)", "/admin(.*)"]);
-
-export default clerkMiddleware(async (auth, req) => {
-  if (isProtected(req)) await auth.protect();
-});
+// Clerk middleware only attaches the session. There is deliberately no path-based
+// protection here: every piece of data is authorized inside the Convex function that
+// reads or writes it (see convex/lib/auth.ts), and signed-out visitors to app pages
+// get a sign-in prompt from the AppShell.
+export default clerkMiddleware();
 
 export const config = {
   matcher: [

@@ -16,7 +16,8 @@ export const store = mutation({
     if (!identity) fail("UNAUTHENTICATED", "Please sign in.");
     const email = identity.email?.trim().toLowerCase();
     if (!email) fail("INVALID", "Your account needs an email address.");
-    const name = identity.name?.trim() || email.split("@")[0];
+    // Display name is visible to neighbours, so it must never be derived from the email.
+    const name = identity.name?.trim() || identity.givenName?.trim() || neighbourHandle(identity.tokenIdentifier);
     const role = adminEmails().has(email) ? ("admin" as const) : ("user" as const);
 
     const existing = await getCurrentUser(ctx);
@@ -35,6 +36,13 @@ export const store = mutation({
     });
   },
 });
+
+/** Stable, non-identifying fallback like "Neighbour K3F9" for accounts without a name. */
+function neighbourHandle(tokenIdentifier: string): string {
+  let h = 0;
+  for (const ch of tokenIdentifier) h = (Math.imul(31, h) + ch.charCodeAt(0)) >>> 0;
+  return `Neighbour ${h.toString(36).slice(-4).toUpperCase().padStart(4, "0")}`;
+}
 
 /** The signed-in user's own profile (null when signed out or not yet stored). */
 export const me = query({

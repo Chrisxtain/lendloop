@@ -16,6 +16,7 @@ import type * as lib_notify from "../lib/notify.js";
 import type * as lib_validate from "../lib/validate.js";
 import type * as lib_views from "../lib/views.js";
 import type * as loans from "../loans.js";
+import type * as seed from "../seed.js";
 import type * as tools from "../tools.js";
 import type * as users from "../users.js";
 
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   "lib/validate": typeof lib_validate;
   "lib/views": typeof lib_views;
   loans: typeof loans;
+  seed: typeof seed;
   tools: typeof tools;
   users: typeof users;
 }>;
