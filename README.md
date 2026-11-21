@@ -145,20 +145,9 @@ This project was built to production standards, not just to make the screens wor
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  B[Browser<br/>Next.js App Router] -- "sign in" --> C[Clerk]
-  B -- "queries / mutations<br/>+ Clerk JWT" --> X[(Convex<br/>data + rules)]
-  X -- "signed webhook<br/>(scheduled action, retried)" --> N1[n8n: Request notification]
-  N1 -- "email" --> R[Resend]
-  N1 -- "signed write-back<br/>/automation/events" --> X
-  S[n8n: Overdue reminders<br/>daily 09:00 UTC] -- "signed<br/>/automation/overdue-loans" --> X
-  S -- "email" --> R
-  S -- "signed write-back" --> X
-  E[n8n: Error handler] -- "signed<br/>/automation/errors" --> X
-  N1 -. "on failure" .-> E
-  S -. "on failure" .-> E
-```
+<p align="center">
+<img src="docs/diagrams/architecture.svg" alt="Architecture: the browser signs in with Clerk and calls Convex with a JWT. Convex sends a signed webhook to the n8n Request notification workflow. n8n workflows call Convex over signed endpoints for the overdue list, write-backs and error reports, and send email via Resend. Failed runs go to the n8n Error handler." width="900"/>
+</p>
 
 | Layer | Technology | Responsibility |
 |---|---|---|
@@ -170,18 +159,9 @@ flowchart LR
 
 ### The loan lifecycle
 
-```mermaid
-stateDiagram-v2
-  [*] --> requested: borrower requests dates
-  requested --> approved: lender approves
-  requested --> declined: lender declines
-  requested --> cancelled: borrower cancels
-  approved --> returned: lender marks returned
-  approved --> cancelled: admin removes listing
-  returned --> [*]
-  declined --> [*]
-  cancelled --> [*]
-```
+<p align="center">
+<img src="docs/diagrams/loan-lifecycle.svg" alt="Loan lifecycle: requested, then approved by the lender, declined by the lender, or cancelled by the borrower. Approved becomes returned when the lender marks it returned, or cancelled if an admin removes the listing." width="720"/>
+</p>
 
 Each transition is checked for **who** is acting (lender, borrower or admin) and for the **current state** (you can't approve a declined request). Every transition triggers exactly one notification.
 
@@ -444,7 +424,7 @@ src/                     frontend
 n8n/workflows/           exported workflows (no secrets)
 docker-compose.yml       n8n with auto-import and an optional tunnel
 scripts/                 live smoke test, n8n without Docker
-docs/screenshots/        images used in this README
+docs/                    screenshots and diagrams used in this README
 DESIGN.md                design tokens and rules
 ```
 
