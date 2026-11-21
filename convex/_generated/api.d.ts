@@ -8,7 +8,16 @@
  * @module
  */
 
-import type * as whoami from "../whoami.js";
+import type * as admin from "../admin.js";
+import type * as lib_auth from "../lib/auth.js";
+import type * as lib_constants from "../lib/constants.js";
+import type * as lib_env from "../lib/env.js";
+import type * as lib_notify from "../lib/notify.js";
+import type * as lib_validate from "../lib/validate.js";
+import type * as lib_views from "../lib/views.js";
+import type * as loans from "../loans.js";
+import type * as tools from "../tools.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +26,16 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  whoami: typeof whoami;
+  admin: typeof admin;
+  "lib/auth": typeof lib_auth;
+  "lib/constants": typeof lib_constants;
+  "lib/env": typeof lib_env;
+  "lib/notify": typeof lib_notify;
+  "lib/validate": typeof lib_validate;
+  "lib/views": typeof lib_views;
+  loans: typeof loans;
+  tools: typeof tools;
+  users: typeof users;
 }>;
 
 /**
