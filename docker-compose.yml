@@ -1,0 +1,53 @@
+# n8n for LendLoop.
+#   cp n8n/.env.example n8n/.env   # then fill in the values (see README)
+#   docker compose up -d                       # n8n on http://localhost:5678
+#   docker compose --profile tunnel up -d      # + public HTTPS URL so a cloud Convex can reach n8n
+#                                              #   (docker compose logs tunnel | grep trycloudflare)
+# Workflows in ./n8n/workflows are imported automatically on start.
+# Secrets live in n8n/.env (git-ignored) and in n8n's encrypted credential store; never in the workflow JSON.
+
+x-n8n-env: &n8n-env
+  GENERIC_TIMEZONE: UTC
+  TZ: UTC
+  # Code nodes read secrets via $env and sign/verify with Node's crypto module.
+  N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+  NODE_FUNCTION_ALLOW_BUILTIN: crypto
+  N8N_DIAGNOSTICS_ENABLED: "false"
+  N8N_PERSONALIZATION_ENABLED: "false"
+
+services:
+  n8n-import:
+    image: docker.n8n.io/n8nio/n8n:2.48.7
+    env_file: ./n8n/.env
+    environment: *n8n-env
+    entrypoint: ["n8n", "import:workflow", "--separate", "--input=/workflows"]
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    restart: "no"
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.48.7
+    depends_on:
+      n8n-import:
+        condition: service_completed_successfully
+    env_file: ./n8n/.env
+    environment:
+      <<: *n8n-env
+      # Set to the tunnel/public URL so n8n shows the right production webhook URL.
+      N8N_WEBHOOK_URL: ${N8N_PUBLIC_URL:-http://localhost:5678/}
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+
+  tunnel:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:2025.11.1
+    command: tunnel --no-autoupdate --url http://n8n:5678
+    depends_on: [n8n]
+    restart: unless-stopped
+
+volumes:
+  n8n_data:

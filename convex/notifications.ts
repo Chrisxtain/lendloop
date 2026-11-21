@@ -61,13 +61,13 @@ export const deliver = internalAction({
   returns: v.null(),
   handler: async (ctx, { loanId, event, attempt }) => {
     const eventId = `${loanId}:${event}`;
-    const url = process.env.N8N_WEBHOOK_URL;
+    const url = process.env.N8N_NOTIFY_WEBHOOK_URL;
     const secret = process.env.WEBHOOK_SIGNING_SECRET?.split(",")[0]?.trim();
     if (!url || !secret) {
       await ctx.runMutation(internal.notifications.recordDeliveryFailure, {
         loanId,
         eventId,
-        message: "N8N_WEBHOOK_URL or WEBHOOK_SIGNING_SECRET is not configured on the Convex deployment.",
+        message: "N8N_NOTIFY_WEBHOOK_URL or WEBHOOK_SIGNING_SECRET is not configured on the Convex deployment.",
       });
       return null;
     }

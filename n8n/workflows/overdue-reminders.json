@@ -1,0 +1,204 @@
+{
+  "id": "lendloopOverdue1",
+  "name": "LendLoop - Overdue reminders",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b01",
+      "name": "Every day at 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 200],
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 9 * * *" }] }
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b02",
+      "name": "Run now (manual)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 400],
+      "parameters": {}
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b03",
+      "name": "Sign overdue request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Signs the call to Convex with LENDLOOP_API_SECRET (from the environment).\nconst crypto = require('crypto');\nconst secret = ($env.LENDLOOP_API_SECRET || '').split(',')[0].trim();\nif (!secret) throw new Error('LENDLOOP_API_SECRET is not set');\nconst body = '{}';\nconst timestamp = String(Math.floor(Date.now() / 1000));\nconst signature = 'v1=' + crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');\nreturn [{ json: { body, timestamp, signature } }];"
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b04",
+      "name": "Fetch overdue loans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LENDLOOP_CONVEX_SITE_URL }}/automation/overdue-loans",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-lendloop-timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "x-lendloop-signature", "value": "={{ $json.signature }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": { "timeout": 20000 }
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b05",
+      "name": "Build reminder emails",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// One item per overdue loan (Convex already left out loans reminded today). Zero loans = run ends quietly.\nconst { loans = [] } = $input.first().json;\nconst appUrl = ($env.LENDLOOP_APP_URL || 'http://localhost:3100').replace(/\\/$/, '');\nconst from = $env.NOTIFY_FROM || 'LendLoop <onboarding@resend.dev>';\nconst override = ($env.NOTIFY_OVERRIDE_TO || '').trim();\nconst esc = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });\n\nreturn loans.map(l => {\n  const days = l.daysOverdue === 1 ? '1 day' : `${l.daysOverdue} days`;\n  const subject = `Reminder: please return the ${l.toolName}`;\n  const line = `The ${l.toolName} you borrowed from ${l.lenderName} was due back on ${fmt(l.endDate)} (${days} ago).`;\n  const html = `<div style=\"font-family:system-ui,sans-serif;max-width:520px;color:#18181b\">` +\n    (override ? `<p style=\"font-size:12px;color:#6b6b74\">Dev mode: intended for ${esc(l.borrower.email)}</p>` : '') +\n    `<p>Hi ${esc(l.borrower.name)},</p><p>${esc(line)}</p><p>Could you arrange to drop it back? ${esc(l.lenderName)} will mark it returned once they have it.</p>` +\n    `<p><a href=\"${appUrl}/requests\" style=\"display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none\">See your loan</a></p>` +\n    `<p style=\"font-size:12px;color:#6b6b74\">LendLoop. You'll get one reminder a day until it's returned.</p></div>`;\n  return { json: {\n    loanId: l.loanId,\n    reminderKey: l.reminderKey,\n    resend: {\n      from,\n      to: [override || l.borrower.email],\n      subject: override ? `[for ${l.borrower.email}] ${subject}` : subject,\n      html,\n      text: `Hi ${l.borrower.name},\\n\\n${line}\\n\\nSee your loan: ${appUrl}/requests`,\n    },\n  } };\n});"
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b06",
+      "name": "Send reminder (Resend)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput",
+      "credentials": { "httpHeaderAuth": { "id": "lendloopResend01", "name": "Resend API" } },
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Idempotency-Key", "value": "={{ $json.reminderKey }}" }]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.resend) }}",
+        "options": { "timeout": 15000 }
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b07",
+      "name": "Sign: reminder sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 200],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The reminderKey (loan + date) is the idempotency key: re-sending this write-back can't create a second record.\nconst crypto = require('crypto');\nconst secret = ($env.LENDLOOP_API_SECRET || '').split(',')[0].trim();\nif (!secret) throw new Error('LENDLOOP_API_SECRET is not set');\nconst src = $('Build reminder emails').item.json;\nconst body = JSON.stringify({ loanId: src.loanId, kind: 'reminder_sent', idempotencyKey: src.reminderKey });\nconst timestamp = String(Math.floor(Date.now() / 1000));\nconst signature = 'v1=' + crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');\nreturn { json: { body, timestamp, signature } };"
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b08",
+      "name": "Record reminder in Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LENDLOOP_CONVEX_SITE_URL }}/automation/events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-lendloop-timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "x-lendloop-signature", "value": "={{ $json.signature }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": { "timeout": 15000 }
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b09",
+      "name": "Sign: reminder failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 420],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// A failure gets its own key (per execution), so it doesn't block a retry of the reminder later today.\nconst crypto = require('crypto');\nconst secret = ($env.LENDLOOP_API_SECRET || '').split(',')[0].trim();\nif (!secret) throw new Error('LENDLOOP_API_SECRET is not set');\nconst src = $('Build reminder emails').item.json;\nconst body = JSON.stringify({ loanId: src.loanId, kind: 'reminder_failed', idempotencyKey: `${src.reminderKey}:failed:${$execution.id}`, detail: 'email provider error' });\nconst timestamp = String(Math.floor(Date.now() / 1000));\nconst signature = 'v1=' + crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');\nreturn { json: { body, timestamp, signature, error: $json.error?.message || 'Resend request failed' } };"
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b10",
+      "name": "Record failure in Convex",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 420],
+      "retryOnFail": true,
+      "maxTries": 4,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LENDLOOP_CONVEX_SITE_URL }}/automation/events",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-lendloop-timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "x-lendloop-signature", "value": "={{ $json.signature }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "options": { "timeout": 15000 }
+      }
+    },
+    {
+      "id": "3a7c1e90-5b2d-4f6e-8a1c-0d9e8f7a6b11",
+      "name": "Fail run (triggers error workflow)",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [1560, 420],
+      "parameters": {
+        "errorMessage": "=Reminder email could not be sent: {{ $('Sign: reminder failed').item.json.error }}"
+      }
+    }
+  ],
+  "connections": {
+    "Every day at 09:00": { "main": [[{ "node": "Sign overdue request", "type": "main", "index": 0 }]] },
+    "Run now (manual)": { "main": [[{ "node": "Sign overdue request", "type": "main", "index": 0 }]] },
+    "Sign overdue request": { "main": [[{ "node": "Fetch overdue loans", "type": "main", "index": 0 }]] },
+    "Fetch overdue loans": { "main": [[{ "node": "Build reminder emails", "type": "main", "index": 0 }]] },
+    "Build reminder emails": { "main": [[{ "node": "Send reminder (Resend)", "type": "main", "index": 0 }]] },
+    "Send reminder (Resend)": {
+      "main": [
+        [{ "node": "Sign: reminder sent", "type": "main", "index": 0 }],
+        [{ "node": "Sign: reminder failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Sign: reminder sent": { "main": [[{ "node": "Record reminder in Convex", "type": "main", "index": 0 }]] },
+    "Sign: reminder failed": { "main": [[{ "node": "Record failure in Convex", "type": "main", "index": 0 }]] },
+    "Record failure in Convex": { "main": [[{ "node": "Fail run (triggers error workflow)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "errorWorkflow": "lendloopErrors01", "saveDataErrorExecution": "all" },
+  "pinData": {},
+  "tags": []
+}

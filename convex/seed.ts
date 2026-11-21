@@ -74,3 +74,38 @@ export const demo = internalMutation({
     return { users, tools };
   },
 });
+
+/**
+ * Demo of the overdue-reminder workflow: `npx convex run seed:demoOverdue`.
+ * Teodor borrowed Marisol's hedge trimmer and it was due back 2 days ago.
+ * Idempotent: does nothing if that tool already has an active loan. Run seed:demo first.
+ */
+export const demoOverdue = internalMutation({
+  args: {},
+  returns: v.union(v.id("loans"), v.null()),
+  handler: async (ctx) => {
+    const byEmail = (email: string) =>
+      ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", email)).unique();
+    const owner = await byEmail("marisol.demo@lendloop.test");
+    const borrower = await byEmail("teodor.demo@lendloop.test");
+    if (!owner || !borrower) throw new Error("Run seed:demo first");
+    const tool = (
+      await ctx.db.query("tools").withIndex("by_ownerId", (q) => q.eq("ownerId", owner._id)).take(50)
+    ).find((t) => t.name === "Hedge trimmer");
+    if (!tool || tool.status === "on_loan") return null;
+    const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    const loanId = await ctx.db.insert("loans", {
+      toolId: tool._id,
+      toolName: tool.name,
+      ownerId: owner._id,
+      borrowerId: borrower._id,
+      startDate: day(-6),
+      endDate: day(-2),
+      note: "For the front hedge before the street party.",
+      status: "approved",
+      decidedAt: Date.now() - 6 * 86_400_000,
+    });
+    await ctx.db.patch("tools", tool._id, { status: "on_loan" });
+    return loanId;
+  },
+});

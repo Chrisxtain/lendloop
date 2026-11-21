@@ -17,7 +17,7 @@ beforeEach(() => {
   vi.stubEnv("ADMIN_EMAILS", "admin@example.com");
   vi.stubEnv("AUTOMATION_API_SECRET", API_SECRET);
   vi.stubEnv("WEBHOOK_SIGNING_SECRET", HOOK_SECRET);
-  vi.stubEnv("N8N_WEBHOOK_URL", "https://n8n.example.test/webhook/lendloop");
+  vi.stubEnv("N8N_NOTIFY_WEBHOOK_URL", "https://n8n.example.test/webhook/lendloop");
 });
 afterEach(() => {
   vi.unstubAllGlobals();

@@ -11,7 +11,7 @@ export default function Home() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6">
         <section className="grid items-center gap-12 pb-20 pt-10 lg:grid-cols-[1.1fr_1fr] lg:gap-16 lg:pt-16">
           <div>
-            <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink md:text-5xl xl:text-[3.5rem]">
+            <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.03em] text-ink md:text-5xl">
               Borrow what you need. Lend what you don&apos;t.
             </h1>
             <p className="mt-5 max-w-[46ch] text-lg leading-relaxed text-muted">
