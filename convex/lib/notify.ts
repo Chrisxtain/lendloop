@@ -1,18 +1,13 @@
 import type { MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 import type { LoanEvent } from "./constants";
 
 /**
  * Called inside the same mutation that changes a loan. Delivery to n8n is
  * scheduled (not awaited), so it only happens if the mutation commits:
- * a transactional outbox, without a separate outbox table.
- *
- * Wired to the signed n8n webhook in step 4.
+ * a transactional outbox without a separate outbox table.
  */
-export async function queueLoanEvent(
-  _ctx: MutationCtx,
-  _loanId: Id<"loans">,
-  _event: LoanEvent,
-): Promise<void> {
-  // implemented in step 4
+export async function queueLoanEvent(ctx: MutationCtx, loanId: Id<"loans">, event: LoanEvent): Promise<void> {
+  await ctx.scheduler.runAfter(0, internal.notifications.deliver, { loanId, event, attempt: 1 });
 }
