@@ -3,7 +3,9 @@
 #   docker compose up -d                       # n8n on http://localhost:5678
 #   docker compose --profile tunnel up -d      # + public HTTPS URL so a cloud Convex can reach n8n
 #                                              #   (docker compose logs tunnel | grep trycloudflare)
-# Workflows in ./n8n/workflows are imported automatically on start.
+# On every start, n8n-import (re)imports ./n8n/workflows and publishes all three workflows
+# (n8n 2.x only runs an error workflow when it is published). The "Resend API" credential is
+# created once as a placeholder; set your key in the n8n UI and it is never overwritten.
 # Secrets live in n8n/.env (git-ignored) and in n8n's encrypted credential store; never in the workflow JSON.
 
 x-n8n-env: &n8n-env
@@ -20,10 +22,22 @@ services:
     image: docker.n8n.io/n8nio/n8n:2.48.7
     env_file: ./n8n/.env
     environment: *n8n-env
-    entrypoint: ["n8n", "import:workflow", "--separate", "--input=/workflows"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        n8n import:workflow --separate --input=/workflows
+        if [ ! -f /home/node/.n8n/.lendloop-credential-seeded ]; then
+          n8n import:credentials --input=/credentials/resend-api.placeholder.json
+          touch /home/node/.n8n/.lendloop-credential-seeded
+        fi
+        for id in lendloopNotify01 lendloopOverdue1 lendloopErrors01; do
+          n8n publish:workflow --id=$$id
+        done
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/workflows:ro
+      - ./n8n/credentials:/credentials:ro
     restart: "no"
 
   n8n:

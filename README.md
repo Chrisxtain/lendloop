@@ -23,6 +23,21 @@ with automated email notifications and overdue reminders running in the backgrou
 
 ---
 
+### For reviewers: where each deliverable lives
+
+| Deliverable | Where |
+|---|---|
+| App source code | This repository: [`src/`](src) (Next.js), [`convex/`](convex) (backend, permission rules, signed endpoints) |
+| Exported n8n workflow JSON | [`n8n/workflows/`](n8n/workflows): request notification, overdue reminders, error handler |
+| Local setup, including n8n (docker-compose) | [Run it locally](#run-it-locally) and [`docker-compose.yml`](docker-compose.yml) |
+| Environment variables | [Environment variables](#environment-variables), plus [`.env.example`](.env.example) and [`n8n/.env.example`](n8n/.env.example) |
+| Architecture | [Architecture](#architecture), [Automation design](#automation-design-n8n) |
+| Security and data-minimisation decisions | [Security decisions](#security-decisions), [Data minimisation](#data-minimisation), [Roles and access control](#roles-and-access-control) |
+| Production note | [What I would change for production](#what-i-would-change-for-production) |
+| Bonus: automation activity on each loan | "Email sent / Reminder sent 2 days ago" on every loan ([tour](#3-requests-and-loans)) |
+
+---
+
 ## The idea in one minute
 
 Most households own tools that sit in a cupboard almost all year: a drill used twice, a ladder used once, a tent used for one festival. Meanwhile the neighbour two doors down is about to buy the same drill for one weekend job.
@@ -319,14 +334,18 @@ npm run dev                                # http://localhost:3000
 
 ```bash
 cp n8n/.env.example n8n/.env               # same two secrets, your .convex.site URL, an encryption key
-docker compose --profile tunnel up -d      # n8n + auto-import + public tunnel
+docker compose --profile tunnel up -d      # n8n + auto-import/publish + public tunnel
 docker compose logs tunnel | grep trycloudflare
 npx convex env set N8N_NOTIFY_WEBHOOK_URL https://<tunnel>.trycloudflare.com/webhook/lendloop/request-event
 ```
 
 Without Docker: `node scripts/n8n-local.mjs import`, then `node scripts/n8n-local.mjs start`, plus `cloudflared tunnel --url http://localhost:5678`.
 
-In n8n (http://localhost:5678): create the owner account, open **Credentials → Resend API** and set the value to `Bearer re_your_key`, then publish **all three** workflows (Request notification, Overdue reminders and Error handler; an error workflow only runs when published). Re-importing workflows unpublishes them, so publish again after an import.
+On start, the import step loads the three workflows from `n8n/workflows/`, creates a **Resend API** credential placeholder (first run only), and **publishes all three** workflows. Publishing matters: n8n 2.x only runs an error workflow when it is published.
+
+Then, in n8n (http://localhost:5678): create the owner account, open **Credentials → Resend API** and set the value to `Bearer re_your_key`. That's the only manual step, and later restarts never overwrite it.
+
+To try the reminder job without waiting for 09:00: `npx convex run seed:demoOverdue` (creates one overdue demo loan), then **Overdue reminders → Execute workflow** in n8n, or `node scripts/n8n-local.mjs execute --id=lendloopOverdue1`.
 
 > **Resend test mode:** without a verified domain, Resend only delivers to your own address. Set `NOTIFY_OVERRIDE_TO` in `n8n/.env` to it; each email then shows who it was really meant for.
 
@@ -422,7 +441,8 @@ src/                     frontend
   app/(app)/             board, listings, requests, admin
   components/            UI kit, app shell, dialogs, loan card
 n8n/workflows/           exported workflows (no secrets)
-docker-compose.yml       n8n with auto-import and an optional tunnel
+n8n/credentials/         Resend credential placeholder (no secret; you add the key in n8n)
+docker-compose.yml       n8n with auto-import + publish and an optional tunnel
 scripts/                 live smoke test, n8n without Docker
 docs/                    screenshots and diagrams used in this README
 DESIGN.md                design tokens and rules
