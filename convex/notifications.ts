@@ -21,6 +21,7 @@ const TIMEOUT_MS = 10_000;
 
 /** Who gets told about each event. */
 function recipientRole(event: LoanEvent): "owner" | "borrower" {
+  // The borrower cancelling tells the lender; everything else (incl. the lender cancelling a booking) tells the borrower.
   return event === "requested" || event === "cancelled" ? "owner" : "borrower";
 }
 
@@ -66,7 +67,7 @@ export const deliver = internalAction({
     if (!url || !secret) {
       await ctx.runMutation(internal.notifications.recordDeliveryFailure, {
         loanId,
-        eventId,
+        event,
         message: "N8N_NOTIFY_WEBHOOK_URL or WEBHOOK_SIGNING_SECRET is not configured on the Convex deployment.",
       });
       return null;
@@ -86,7 +87,11 @@ export const deliver = internalAction({
         body,
         signal: controller.signal,
       });
-      if (res.ok) return null;
+      if (res.ok) {
+        // Clears a previously recorded failure for this event (e.g. after an admin retry).
+        await ctx.runMutation(internal.notifications.resolveDeliveryFailure, { eventId });
+        return null;
+      }
       problem = { retryable: isRetryable(res.status), message: `n8n responded with HTTP ${res.status}` };
     } catch (e) {
       problem = { retryable: true, message: `Could not reach n8n: ${e instanceof Error ? e.message : String(e)}` };
@@ -106,22 +111,58 @@ export const deliver = internalAction({
     console.error(`[notify] ${eventId} gave up after attempt ${attempt}: ${problem.message}`);
     await ctx.runMutation(internal.notifications.recordDeliveryFailure, {
       loanId,
-      eventId,
+      event,
       message: `${problem.message} (after ${attempt} attempt${attempt === 1 ? "" : "s"})`,
     });
     return null;
   },
 });
 
+/**
+ * One error row per notification (keyed by event). It stores loanId + event so an
+ * admin can retry it; a repeated failure after a retry re-opens the same row
+ * instead of adding a duplicate.
+ */
 export const recordDeliveryFailure = internalMutation({
-  args: { loanId: v.id("loans"), eventId: v.string(), message: v.string() },
+  args: { loanId: v.id("loans"), event: loanEventValidator, message: v.string() },
   returns: v.null(),
-  handler: async (ctx, { loanId, eventId, message }) => {
-    const key = `delivery:${eventId}`;
-    await recordAutomationError(ctx, { source: "convex: request notification webhook", message, idempotencyKey: key });
-    if (await ctx.db.get("loans", loanId)) {
-      await recordAutomationEvent(ctx, { loanId, kind: "notification_failed", idempotencyKey: key, detail: "not delivered" });
+  handler: async (ctx, { loanId, event, message }) => {
+    const key = `delivery:${loanId}:${event}`;
+    const existing = await ctx.db
+      .query("automationErrors")
+      .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", key))
+      .first();
+    if (existing) {
+      await ctx.db.patch("automationErrors", existing._id, { message, at: Date.now(), resolvedAt: undefined });
+    } else {
+      await recordAutomationError(ctx, { source: "convex: request notification webhook", message, idempotencyKey: key });
+      const row = await ctx.db
+        .query("automationErrors")
+        .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", key))
+        .first();
+      if (row) await ctx.db.patch("automationErrors", row._id, { loanId, event });
     }
+    if (await ctx.db.get("loans", loanId)) {
+      await recordAutomationEvent(ctx, {
+        loanId,
+        kind: "notification_failed",
+        idempotencyKey: `${key}:${Date.now()}`,
+        detail: "not delivered",
+      });
+    }
+    return null;
+  },
+});
+
+export const resolveDeliveryFailure = internalMutation({
+  args: { eventId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { eventId }) => {
+    const row = await ctx.db
+      .query("automationErrors")
+      .withIndex("by_idempotencyKey", (q) => q.eq("idempotencyKey", `delivery:${eventId}`))
+      .first();
+    if (row && !row.resolvedAt) await ctx.db.patch("automationErrors", row._id, { resolvedAt: Date.now() });
     return null;
   },
 });

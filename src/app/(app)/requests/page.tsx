@@ -1,19 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense } from "react";
 import { useQuery } from "convex/react";
 import { motion, useReducedMotion } from "motion/react";
 import { Tray, HandGrabbing } from "@phosphor-icons/react";
 import { api } from "../../../../convex/_generated/api";
 import { EmptyState, PageHeader, Skeleton } from "@/components/ui";
 import { LoanCard, type LoanRow } from "@/components/LoanCard";
+import { isUpcoming } from "@/lib/format";
+import { useQueryParam } from "@/hooks/useQueryParam";
 
 type Tab = "incoming" | "mine";
 
 export default function RequestsPage() {
+  // useSearchParams needs a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={<Skeleton className="h-64" />}>
+      <Requests />
+    </Suspense>
+  );
+}
+
+function Requests() {
   const incoming = useQuery(api.loans.incoming);
   const mine = useQuery(api.loans.myRequests);
-  const [tab, setTab] = useState<Tab>("incoming");
+  // The tab lives in the URL (?tab=mine) so it can be linked to and survives Back.
+  const [tabParam, setTabParam] = useQueryParam("tab");
+  const tab: Tab = tabParam === "mine" ? "mine" : "incoming";
+  const setTab = (t: Tab) => setTabParam(t === "incoming" ? null : t);
   const pendingIncoming = incoming?.filter((l) => l.status === "requested").length ?? 0;
   const rows = tab === "incoming" ? incoming : mine;
 
@@ -58,11 +72,15 @@ export default function RequestsPage() {
   );
 }
 
-/** Groups by what needs attention first: pending, active, then history. */
+/** Groups by what needs attention first: pending, out now, upcoming bookings, then history. */
 function Grouped({ rows, tab }: { rows: LoanRow[]; tab: Tab }) {
   const groups = [
     { title: tab === "incoming" ? "Waiting for your answer" : "Waiting for an answer", items: rows.filter((r) => r.status === "requested") },
-    { title: tab === "incoming" ? "Out on loan" : "Borrowing now", items: rows.filter((r) => r.status === "approved") },
+    {
+      title: tab === "incoming" ? "Out on loan" : "Borrowing now",
+      items: rows.filter((r) => r.status === "approved" && !isUpcoming(r.status, r.startDate)),
+    },
+    { title: "Upcoming bookings", items: rows.filter((r) => isUpcoming(r.status, r.startDate)) },
     { title: "History", items: rows.filter((r) => !["requested", "approved"].includes(r.status)) },
   ].filter((g) => g.items.length > 0);
 

@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { LIMITS } from "../../convex/lib/constants";
-import { addDays, errorMessage, todayUtc } from "@/lib/format";
+import { addDays, errorMessage, formatRange, todayUtc } from "@/lib/format";
 import { Button, Dialog, Field, inputClass } from "./ui";
 import { useToast } from "./Toast";
 
@@ -27,11 +27,20 @@ function RequestForm({ tool, onDone }: { tool: RequestTarget; onDone: () => void
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const request = useMutation(api.loans.request);
+  const bookings = useQuery(api.tools.bookings, { toolId: tool._id });
   const toast = useToast();
   const maxEnd = addDays(start, LIMITS.maxLoanDays - 1);
+  // Date ranges only (no names), filtered to ones that still matter.
+  const booked = (bookings ?? []).filter((b) => b.endDate >= today);
+  const clash = booked.find((b) => start <= b.endDate && b.startDate <= end);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Submit stays enabled; a clash is explained here instead of silently blocking the button.
+    if (clash) {
+      setError(`Those dates overlap a booking (${formatRange(clash.startDate, clash.endDate)}). Pick dates before or after it.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -49,13 +58,25 @@ function RequestForm({ tool, onDone }: { tool: RequestTarget; onDone: () => void
     <form onSubmit={submit} className="grid gap-4">
       {tool.onLoan ? (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
-          This is out on loan right now. You can still ask for later dates.
+          This is out on loan right now. You can still book it for later dates.
         </p>
+      ) : null}
+      {booked.length > 0 ? (
+        <div className="rounded-lg border border-line px-3 py-2 text-sm">
+          <p className="font-medium text-ink">Already booked</p>
+          <ul className="mt-1 grid gap-0.5 font-mono text-[13px] text-muted">
+            {booked.map((b) => (
+              <li key={b.startDate}>{formatRange(b.startDate, b.endDate)}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="From" htmlFor="req-start">
           <input
             id="req-start"
+            name="startDate"
+            autoComplete="off"
             type="date"
             required
             min={today}
@@ -71,6 +92,8 @@ function RequestForm({ tool, onDone }: { tool: RequestTarget; onDone: () => void
         <Field label="Return by" htmlFor="req-end" hint={`Up to ${LIMITS.maxLoanDays} days.`}>
           <input
             id="req-end"
+            name="endDate"
+            autoComplete="off"
             type="date"
             required
             min={start}
@@ -84,14 +107,21 @@ function RequestForm({ tool, onDone }: { tool: RequestTarget; onDone: () => void
       <Field label={`Note to ${tool.ownerName} (optional)`} htmlFor="req-note">
         <textarea
           id="req-note"
+          name="note"
+          autoComplete="off"
           rows={2}
           maxLength={LIMITS.note.max}
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Hanging shelves on Saturday, can pick up Friday evening."
+          placeholder="e.g. Hanging shelves on Saturday, can pick up Friday evening…"
           className={`${inputClass} h-auto py-2`}
         />
       </Field>
+      {clash && !error ? (
+        <p role="status" className="text-sm text-warn">
+          Those dates overlap a booking ({formatRange(clash.startDate, clash.endDate)}). Pick dates around it.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}

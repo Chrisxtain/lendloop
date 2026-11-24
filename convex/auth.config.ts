@@ -1,6 +1,6 @@
 // Convex verifies Clerk-issued JWTs. The issuer domain is an env var set on the
 // Convex deployment (npx convex env set CLERK_JWT_ISSUER_DOMAIN ...), never hard-coded.
-export default {
+const authConfig = {
   providers: [
     {
       domain: process.env.CLERK_JWT_ISSUER_DOMAIN!,
@@ -8,3 +8,5 @@ export default {
     },
   ],
 };
+
+export default authConfig;

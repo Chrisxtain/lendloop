@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { categoryValidator, conditionValidator, loanStatusValidator } from "./lib/constants";
+import { categoryValidator, conditionValidator, loanEventValidator, loanStatusValidator } from "./lib/constants";
 
 export default defineSchema({
   // One row per Clerk identity. `role` is derived server-side (ADMIN_EMAILS), never client-supplied.
@@ -42,7 +42,8 @@ export default defineSchema({
     .index("by_borrowerId", ["borrowerId"])
     .index("by_ownerId", ["ownerId"])
     .index("by_toolId_and_status", ["toolId", "status"])
-    .index("by_status_and_endDate", ["status", "endDate"]),
+    .index("by_status_and_endDate", ["status", "endDate"])
+    .index("by_status_and_startDate", ["status", "startDate"]),
 
   // What the automations did for a loan (shown in the UI). idempotencyKey makes n8n retries safe.
   automationEvents: defineTable({
@@ -62,11 +63,16 @@ export default defineSchema({
 
   // Failed workflow runs reported by the n8n error workflow (or by Convex delivery giving up).
   automationErrors: defineTable({
-    source: v.string(), // workflow name or "convex:webhook-delivery"
+    source: v.string(), // workflow name or "convex: request notification webhook"
     message: v.string(),
     executionId: v.optional(v.string()),
     idempotencyKey: v.string(),
     at: v.number(),
+    // Set when Convex itself gave up delivering a notification: lets an admin retry it.
+    loanId: v.optional(v.id("loans")),
+    event: v.optional(loanEventValidator),
+    retriedAt: v.optional(v.number()),
+    resolvedAt: v.optional(v.number()),
   }).index("by_idempotencyKey", ["idempotencyKey"]),
 
   // Admin actions, for accountability.

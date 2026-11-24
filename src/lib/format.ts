@@ -42,6 +42,17 @@ export function isOverdue(status: string, endDate: string, today = todayUtc()) {
   return status === "approved" && endDate < today;
 }
 
+/** An approved loan whose start date is still ahead (a booking, not yet out). */
+export function isUpcoming(status: string, startDate: string, today = todayUtc()) {
+  return status === "approved" && startDate > today;
+}
+
+/** "Starts tomorrow" / "Starts in 4 days" for an upcoming booking. */
+export function startsLabel(startDate: string, today = todayUtc()): string {
+  const days = Math.round((Date.parse(`${startDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  return days <= 1 ? "Starts tomorrow" : `Starts in ${days} days`;
+}
+
 /** "Due back in 2 days" / "Due back today" / "3 days overdue" for an active loan. */
 export function dueLabel(endDate: string, today = todayUtc()): { text: string; overdue: boolean } {
   const days = Math.round((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);

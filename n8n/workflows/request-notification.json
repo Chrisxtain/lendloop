@@ -9,13 +9,18 @@
       "name": "Convex webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 300],
+      "position": [
+        0,
+        300
+      ],
       "webhookId": "5b0c8d0e-1f7a-4a8e-9a0b-3c4d5e6f7a01",
       "parameters": {
         "httpMethod": "POST",
         "path": "lendloop/request-event",
         "responseMode": "responseNode",
-        "options": { "rawBody": true }
+        "options": {
+          "rawBody": true
+        }
       }
     },
     {
@@ -23,7 +28,10 @@
       "name": "Verify signature",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 300],
+      "position": [
+        220,
+        300
+      ],
       "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "// Verifies the HMAC signature Convex puts on every webhook.\n// Secret comes from the environment (LENDLOOP_WEBHOOK_SECRET); comma-separated values allow rotation.\nconst crypto = require('crypto');\nconst secrets = ($env.LENDLOOP_WEBHOOK_SECRET || '').split(',').map(s => s.trim()).filter(Boolean);\nconst item = $input.first();\nconst h = item.json.headers || {};\nconst ts = String(h['x-lendloop-timestamp'] || '');\nconst sig = String(h['x-lendloop-signature'] || '');\n\n// Prefer the exact raw bytes; fall back to the parsed body (Convex sends compact JSON.stringify output).\nlet raw = null;\ntry {\n  if (item.binary && item.binary.data) raw = (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8');\n} catch (e) { raw = null; }\nconst candidates = [raw, JSON.stringify(item.json.body)].filter(Boolean);\n\nconst fresh = /^\\d{9,11}$/.test(ts) && Math.abs(Date.now() / 1000 - Number(ts)) <= 300; // 5-minute replay window\nconst m = /^v1=([0-9a-f]{64})$/.exec(sig);\nlet valid = false;\nif (secrets.length && fresh && m) {\n  const given = Buffer.from(m[1], 'hex');\n  for (const s of secrets) {\n    for (const body of candidates) {\n      const expected = crypto.createHmac('sha256', s).update(`${ts}.${body}`).digest();\n      if (expected.length === given.length && crypto.timingSafeEqual(expected, given)) valid = true;\n    }\n  }\n}\n\n// Headers and raw body stop here; only the verified event moves on.\nreturn [{ json: { valid, event: valid ? item.json.body : null } }];"
@@ -34,16 +42,28 @@
       "name": "Signature valid?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [440, 300],
+      "position": [
+        440,
+        300
+      ],
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "6f1d2c3b-0000-4000-8000-000000000001",
               "leftValue": "={{ $json.valid }}",
               "rightValue": "",
-              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -56,11 +76,16 @@
       "name": "Accept (202)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [660, 200],
+      "position": [
+        660,
+        200
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { \"accepted\": true } }}",
-        "options": { "responseCode": 202 }
+        "options": {
+          "responseCode": 202
+        }
       }
     },
     {
@@ -68,11 +93,16 @@
       "name": "Reject (401)",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [660, 420],
+      "position": [
+        660,
+        420
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { \"error\": \"unauthorized\" } }}",
-        "options": { "responseCode": 401 }
+        "options": {
+          "responseCode": 401
+        }
       }
     },
     {
@@ -80,10 +110,13 @@
       "name": "Build email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 200],
+      "position": [
+        880,
+        200
+      ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Turns the minimal Convex event into an email. User-typed text is HTML-escaped.\nconst e = $input.first().json.event;\nconst appUrl = ($env.LENDLOOP_APP_URL || 'http://localhost:3100').replace(/\\/$/, '');\nconst from = $env.NOTIFY_FROM || 'LendLoop <onboarding@resend.dev>';\nconst override = ($env.NOTIFY_OVERRIDE_TO || '').trim(); // dev only: no verified Resend domain\nconst esc = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });\nconst range = e.startDate === e.endDate ? fmt(e.startDate) : `${fmt(e.startDate)} to ${fmt(e.endDate)}`;\nconst who = e.otherPartyName, tool = e.toolName;\n\nconst copy = {\n  requested: [`${who} wants to borrow your ${tool}`, `${who} asked to borrow your ${tool} for ${range}.`, e.note ? `Their note: \"${e.note}\"` : '', 'Approve or decline'],\n  approved: [`Approved: ${tool}`, `${who} approved your request to borrow the ${tool} for ${range}.`, `Please bring it back by ${fmt(e.endDate)}.`, 'See your loan'],\n  declined: [`Not this time: ${tool}`, `${who} can't lend the ${tool} for ${range}.`, 'Have a look on the board for another one nearby.', 'Browse the shelf'],\n  cancelled: [`Request cancelled: ${tool}`, `${who} cancelled their request to borrow your ${tool} (${range}).`, '', 'Open LendLoop'],\n  returned: [`Returned: ${tool}`, `${who} marked the ${tool} as returned.`, 'Thanks for borrowing responsibly.', 'Open LendLoop'],\n  tool_removed: [`No longer available: ${tool}`, `The ${tool} listing was removed, so your request for ${range} was cancelled.`, '', 'Browse the shelf'],\n}[e.event];\nif (!copy) throw new Error(`Unknown event type: ${e.event}`);\nconst [subject, line1, line2, cta] = copy;\nconst link = `${appUrl}${e.event === 'declined' || e.event === 'tool_removed' ? '/board' : '/requests'}`;\nconst to = override || e.recipient.email;\n\nconst html = `<div style=\"font-family:system-ui,sans-serif;max-width:520px;color:#18181b\">` +\n  (override ? `<p style=\"font-size:12px;color:#6b6b74\">Dev mode: intended for ${esc(e.recipient.email)}</p>` : '') +\n  `<p>Hi ${esc(e.recipient.name)},</p><p>${esc(line1)}</p>` + (line2 ? `<p>${esc(line2)}</p>` : '') +\n  `<p><a href=\"${link}\" style=\"display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none\">${esc(cta)}</a></p>` +\n  `<p style=\"font-size:12px;color:#6b6b74\">LendLoop. Borrow what you need. Lend what you don't.</p></div>`;\nconst text = [`Hi ${e.recipient.name},`, line1, line2, `${cta}: ${link}`].filter(Boolean).join('\\n\\n');\n\nreturn [{ json: {\n  loanId: e.loanId,\n  idempotencyKey: e.eventId,\n  resend: { from, to: [to], subject: override ? `[for ${e.recipient.email}] ${subject}` : subject, html, text },\n} }];"
+        "jsCode": "// Turns the minimal Convex event into an email. User-typed text is HTML-escaped.\nconst e = $input.first().json.event;\nconst appUrl = ($env.LENDLOOP_APP_URL || 'http://localhost:3100').replace(/\\/$/, '');\nconst from = $env.NOTIFY_FROM || 'LendLoop <onboarding@resend.dev>';\nconst override = ($env.NOTIFY_OVERRIDE_TO || '').trim(); // dev only: no verified Resend domain\nconst esc = s => String(s ?? '').replace(/[&<>\"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));\nconst fmt = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });\nconst range = e.startDate === e.endDate ? fmt(e.startDate) : `${fmt(e.startDate)} to ${fmt(e.endDate)}`;\nconst who = e.otherPartyName, tool = e.toolName;\n\nconst copy = {\n  requested: [`${who} wants to borrow your ${tool}`, `${who} asked to borrow your ${tool} for ${range}.`, e.note ? `Their note: \"${e.note}\"` : '', 'Approve or decline'],\n  approved: [`Approved: ${tool}`, `${who} approved your request to borrow the ${tool} for ${range}.`, `Please bring it back by ${fmt(e.endDate)}.`, 'See your loan'],\n  declined: [`Not this time: ${tool}`, `${who} can't lend the ${tool} for ${range}.`, 'Have a look on the board for another one nearby.', 'Browse the shelf'],\n  cancelled: [`Cancelled: ${tool} (${range})`, `${who} no longer needs your ${tool} for ${range}, so the request or booking is cancelled.`, 'Those dates are free again.', 'Open LendLoop'],\n  booking_cancelled: [`Booking cancelled: ${tool}`, `${who} had to cancel your booking of the ${tool} for ${range}.`, 'Have a look on the board for another one nearby.', 'Browse the shelf'],\n  returned: [`Returned: ${tool}`, `${who} marked the ${tool} as returned.`, 'Thanks for borrowing responsibly.', 'Open LendLoop'],\n  tool_removed: [`No longer available: ${tool}`, `The ${tool} listing was removed, so your request for ${range} was cancelled.`, '', 'Browse the shelf'],\n}[e.event];\nif (!copy) throw new Error(`Unknown event type: ${e.event}`);\nconst [subject, line1, line2, cta] = copy;\nconst link = `${appUrl}${['declined', 'tool_removed', 'booking_cancelled'].includes(e.event) ? '/board' : '/requests'}`;\nconst to = override || e.recipient.email;\n\nconst html = `<div style=\"font-family:system-ui,sans-serif;max-width:520px;color:#18181b\">` +\n  (override ? `<p style=\"font-size:12px;color:#6b6b74\">Dev mode: intended for ${esc(e.recipient.email)}</p>` : '') +\n  `<p>Hi ${esc(e.recipient.name)},</p><p>${esc(line1)}</p>` + (line2 ? `<p>${esc(line2)}</p>` : '') +\n  `<p><a href=\"${link}\" style=\"display:inline-block;background:#18181b;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none\">${esc(cta)}</a></p>` +\n  `<p style=\"font-size:12px;color:#6b6b74\">LendLoop. Borrow what you need. Lend what you don't.</p></div>`;\nconst text = [`Hi ${e.recipient.name},`, line1, line2, `${cta}: ${link}`].filter(Boolean).join('\\n\\n');\n\nreturn [{ json: {\n  loanId: e.loanId,\n  idempotencyKey: e.eventId,\n  resend: { from, to: [to], subject: override ? `[for ${e.recipient.email}] ${subject}` : subject, html, text },\n} }];"
       }
     },
     {
@@ -91,12 +124,20 @@
       "name": "Send email (Resend)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1100, 200],
+      "position": [
+        1100,
+        200
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 3000,
       "onError": "continueErrorOutput",
-      "credentials": { "httpHeaderAuth": { "id": "lendloopResend01", "name": "Resend API" } },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "lendloopResend01",
+          "name": "Resend API"
+        }
+      },
       "parameters": {
         "method": "POST",
         "url": "https://api.resend.com/emails",
@@ -104,13 +145,20 @@
         "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Idempotency-Key", "value": "=notify/{{ $json.idempotencyKey }}" }]
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "=notify/{{ $json.idempotencyKey }}"
+            }
+          ]
         },
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
         "body": "={{ JSON.stringify($json.resend) }}",
-        "options": { "timeout": 15000 }
+        "options": {
+          "timeout": 15000
+        }
       }
     },
     {
@@ -118,7 +166,10 @@
       "name": "Sign: email sent",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1320, 100],
+      "position": [
+        1320,
+        100
+      ],
       "parameters": {
         "mode": "runOnceForEachItem",
         "jsCode": "// Signs the write-back to Convex with LENDLOOP_API_SECRET (from the environment).\nconst crypto = require('crypto');\nconst secret = ($env.LENDLOOP_API_SECRET || '').split(',')[0].trim();\nif (!secret) throw new Error('LENDLOOP_API_SECRET is not set');\nconst src = $('Build email').item.json;\nconst body = JSON.stringify({ loanId: src.loanId, kind: 'notification_sent', idempotencyKey: `notify:${src.idempotencyKey}` });\nconst timestamp = String(Math.floor(Date.now() / 1000));\nconst signature = 'v1=' + crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');\nreturn { json: { body, timestamp, signature } };"
@@ -129,7 +180,10 @@
       "name": "Record in Convex",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1540, 100],
+      "position": [
+        1540,
+        100
+      ],
       "retryOnFail": true,
       "maxTries": 4,
       "waitBetweenTries": 5000,
@@ -139,15 +193,23 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-lendloop-timestamp", "value": "={{ $json.timestamp }}" },
-            { "name": "x-lendloop-signature", "value": "={{ $json.signature }}" }
+            {
+              "name": "x-lendloop-timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "x-lendloop-signature",
+              "value": "={{ $json.signature }}"
+            }
           ]
         },
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
         "body": "={{ $json.body }}",
-        "options": { "timeout": 15000 }
+        "options": {
+          "timeout": 15000
+        }
       }
     },
     {
@@ -155,7 +217,10 @@
       "name": "Sign: email failed",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1320, 320],
+      "position": [
+        1320,
+        320
+      ],
       "parameters": {
         "mode": "runOnceForEachItem",
         "jsCode": "const crypto = require('crypto');\nconst secret = ($env.LENDLOOP_API_SECRET || '').split(',')[0].trim();\nif (!secret) throw new Error('LENDLOOP_API_SECRET is not set');\nconst src = $('Build email').item.json;\nconst body = JSON.stringify({ loanId: src.loanId, kind: 'notification_failed', idempotencyKey: `notify-failed:${src.idempotencyKey}:${$execution.id}`, detail: 'email provider error' });\nconst timestamp = String(Math.floor(Date.now() / 1000));\nconst signature = 'v1=' + crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');\nreturn { json: { body, timestamp, signature, error: $json.error?.message || 'Resend request failed' } };"
@@ -166,7 +231,10 @@
       "name": "Record failure in Convex",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1540, 320],
+      "position": [
+        1540,
+        320
+      ],
       "retryOnFail": true,
       "maxTries": 4,
       "waitBetweenTries": 5000,
@@ -176,15 +244,23 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-lendloop-timestamp", "value": "={{ $json.timestamp }}" },
-            { "name": "x-lendloop-signature", "value": "={{ $json.signature }}" }
+            {
+              "name": "x-lendloop-timestamp",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "x-lendloop-signature",
+              "value": "={{ $json.signature }}"
+            }
           ]
         },
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
         "body": "={{ $json.body }}",
-        "options": { "timeout": 15000 }
+        "options": {
+          "timeout": 15000
+        }
       }
     },
     {
@@ -192,34 +268,135 @@
       "name": "Fail run (triggers error workflow)",
       "type": "n8n-nodes-base.stopAndError",
       "typeVersion": 1,
-      "position": [1760, 320],
+      "position": [
+        1760,
+        320
+      ],
       "parameters": {
         "errorMessage": "=Notification email could not be sent: {{ $('Sign: email failed').item.json.error }}"
       }
     }
   ],
   "connections": {
-    "Convex webhook": { "main": [[{ "node": "Verify signature", "type": "main", "index": 0 }]] },
-    "Verify signature": { "main": [[{ "node": "Signature valid?", "type": "main", "index": 0 }]] },
+    "Convex webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify signature": {
+      "main": [
+        [
+          {
+            "node": "Signature valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Signature valid?": {
       "main": [
-        [{ "node": "Accept (202)", "type": "main", "index": 0 }],
-        [{ "node": "Reject (401)", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Accept (202)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject (401)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Accept (202)": { "main": [[{ "node": "Build email", "type": "main", "index": 0 }]] },
-    "Build email": { "main": [[{ "node": "Send email (Resend)", "type": "main", "index": 0 }]] },
+    "Accept (202)": {
+      "main": [
+        [
+          {
+            "node": "Build email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build email": {
+      "main": [
+        [
+          {
+            "node": "Send email (Resend)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Send email (Resend)": {
       "main": [
-        [{ "node": "Sign: email sent", "type": "main", "index": 0 }],
-        [{ "node": "Sign: email failed", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Sign: email sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sign: email failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Sign: email sent": { "main": [[{ "node": "Record in Convex", "type": "main", "index": 0 }]] },
-    "Sign: email failed": { "main": [[{ "node": "Record failure in Convex", "type": "main", "index": 0 }]] },
-    "Record failure in Convex": { "main": [[{ "node": "Fail run (triggers error workflow)", "type": "main", "index": 0 }]] }
+    "Sign: email sent": {
+      "main": [
+        [
+          {
+            "node": "Record in Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign: email failed": {
+      "main": [
+        [
+          {
+            "node": "Record failure in Convex",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record failure in Convex": {
+      "main": [
+        [
+          {
+            "node": "Fail run (triggers error workflow)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1", "errorWorkflow": "lendloopErrors01", "saveDataErrorExecution": "all" },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "lendloopErrors01",
+    "saveDataErrorExecution": "all"
+  },
   "pinData": {},
   "tags": []
 }

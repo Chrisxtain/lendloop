@@ -46,7 +46,7 @@ export function ConfirmDialog({
       {withReason ? (
         <div className="mt-4">
           <Field label="Reason (shown in the audit log)" htmlFor="confirm-reason">
-            <input id="confirm-reason" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} className={inputClass} />
+            <input id="confirm-reason" name="reason" autoComplete="off" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} className={inputClass} />
           </Field>
         </div>
       ) : null}

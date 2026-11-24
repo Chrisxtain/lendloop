@@ -8,7 +8,7 @@ import { SignInButton, UserButton } from "@clerk/nextjs";
 import { motion, useReducedMotion } from "motion/react";
 import { api } from "../../convex/_generated/api";
 import { useStoreUser } from "@/hooks/useStoreUser";
-import { Footer, Wordmark } from "./Brand";
+import { Footer, SkipLink, Wordmark } from "./Brand";
 import { Button, Skeleton } from "./ui";
 
 /* z-index scale: 40 sticky header, 50 toasts. Dialogs use the native top layer. */
@@ -16,6 +16,7 @@ import { Button, Skeleton } from "./ui";
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-[100dvh] flex-col">
+      <SkipLink />
       <AuthLoading>
         <ShellSkeleton />
       </AuthLoading>
@@ -44,7 +45,9 @@ function SignedInShell({ children }: { children: ReactNode }) {
   return (
     <>
       <TopNav />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6">{children}</main>
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 outline-none sm:px-6">
+        {children}
+      </main>
     </>
   );
 }

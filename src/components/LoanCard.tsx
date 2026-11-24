@@ -6,8 +6,9 @@ import type { FunctionReturnType } from "convex/server";
 import { motion, useReducedMotion } from "motion/react";
 import { BellRinging, EnvelopeSimple, SealCheck, WarningCircle } from "@phosphor-icons/react";
 import { api } from "../../convex/_generated/api";
-import { dueLabel, errorMessage, formatRange, isOverdue, relativeTime } from "@/lib/format";
+import { dueLabel, errorMessage, formatRange, isOverdue, isUpcoming, relativeTime, startsLabel } from "@/lib/format";
 import { Button, LoanStatusBadge } from "./ui";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast } from "./Toast";
 
 export type LoanRow = FunctionReturnType<typeof api.loans.incoming>[number];
@@ -37,6 +38,7 @@ export function AutomationLine({ events }: { events: Automation[] }) {
 
 export function LoanCard({ loan, index }: { loan: LoanRow; index: number }) {
   const overdue = isOverdue(loan.status, loan.endDate);
+  const upcoming = isUpcoming(loan.status, loan.startDate);
   const reduce = useReducedMotion();
   const lender = loan.role === "lender";
   return (
@@ -48,19 +50,24 @@ export function LoanCard({ loan, index }: { loan: LoanRow; index: number }) {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-medium text-ink">{loan.toolName}</p>
+          <p className="break-words font-medium text-ink">{loan.toolName}</p>
           <p className="mt-0.5 flex items-center gap-1 text-sm text-muted">
             {lender ? "Requested by" : "Lent by"} {loan.otherParty.name}
             {loan.otherParty.trustedLender ? (
-              <SealCheck size={15} weight="fill" className="text-accent" aria-label="Trusted Lender" />
+              <>
+                <SealCheck size={15} weight="fill" className="text-accent" />
+                <span className="sr-only">(Trusted Lender)</span>
+              </>
             ) : null}
           </p>
         </div>
-        <LoanStatusBadge status={loan.status} overdue={overdue} />
+        <LoanStatusBadge status={loan.status} overdue={overdue} upcoming={upcoming} />
       </div>
       <p className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="font-mono text-[13px] text-body">{formatRange(loan.startDate, loan.endDate)}</span>
-        {loan.status === "approved" ? (
+        {upcoming ? (
+          <span className="text-sm font-medium text-ink">{startsLabel(loan.startDate)}</span>
+        ) : loan.status === "approved" ? (
           <span className={`text-sm font-medium ${overdue ? "text-danger" : "text-ink"}`}>{dueLabel(loan.endDate).text}</span>
         ) : null}
       </p>
@@ -80,6 +87,8 @@ function LoanActions({ loan }: { loan: LoanRow }) {
   const markReturned = useMutation(api.loans.markReturned);
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
+  // Irreversible actions that email the other person go through a confirmation first.
+  const [confirm, setConfirm] = useState<null | { title: string; body: string; label: string; action: () => Promise<null>; ok: string }>(null);
 
   async function run(key: string, fn: () => Promise<null>, ok: string) {
     setBusy(key);
@@ -94,31 +103,92 @@ function LoanActions({ loan }: { loan: LoanRow }) {
   }
 
   const id = { loanId: loan._id };
-  if (loan.role === "lender" && loan.status === "requested") {
-    return (
+  const upcoming = isUpcoming(loan.status, loan.startDate);
+  const what = `${loan.toolName}, ${formatRange(loan.startDate, loan.endDate)}.`;
+  const who = loan.otherParty.name;
+
+  let buttons: React.ReactNode = null;
+  if (upcoming) {
+    // An approved booking that hasn't started can be cancelled by either side.
+    buttons = (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="ml-auto"
+        aria-label={`Cancel booking for ${loan.toolName}`}
+        onClick={() =>
+          setConfirm({ title: "Cancel this booking?", body: `${what} ${who} will get an email that it's cancelled.`, label: "Cancel booking", action: () => cancel(id), ok: "Booking cancelled" })
+        }
+      >
+        Cancel booking
+      </Button>
+    );
+  } else if (loan.role === "lender" && loan.status === "requested") {
+    buttons = (
       <div className="ml-auto flex gap-2">
-        <Button size="sm" variant="secondary" busy={busy === "decline"} onClick={() => run("decline", () => decline(id), "Request declined")}>
+        <Button
+          size="sm"
+          variant="secondary"
+          aria-label={`Decline request for ${loan.toolName}`}
+          onClick={() =>
+            setConfirm({ title: "Decline this request?", body: `${what} ${who} will get an email.`, label: "Decline request", action: () => decline(id), ok: "Request declined" })
+          }
+        >
           Decline
         </Button>
-        <Button size="sm" busy={busy === "approve"} onClick={() => run("approve", () => approve(id), "Approved. They'll get an email.")}>
+        <Button
+          size="sm"
+          busy={busy === "approve"}
+          aria-label={`Approve request for ${loan.toolName}`}
+          onClick={() => run("approve", () => approve(id), "Approved. They'll get an email.")}
+        >
           Approve
         </Button>
       </div>
     );
-  }
-  if (loan.role === "lender" && loan.status === "approved") {
-    return (
-      <Button size="sm" className="ml-auto" busy={busy === "return"} onClick={() => run("return", () => markReturned(id), "Marked as returned")}>
+  } else if (loan.role === "lender" && loan.status === "approved") {
+    buttons = (
+      <Button
+        size="sm"
+        className="ml-auto"
+        busy={busy === "return"}
+        aria-label={`Mark ${loan.toolName} returned`}
+        onClick={() => run("return", () => markReturned(id), "Marked as returned")}
+      >
         Mark returned
       </Button>
     );
-  }
-  if (loan.role === "borrower" && loan.status === "requested") {
-    return (
-      <Button size="sm" variant="ghost" className="ml-auto" busy={busy === "cancel"} onClick={() => run("cancel", () => cancel(id), "Request cancelled")}>
+  } else if (loan.role === "borrower" && loan.status === "requested") {
+    buttons = (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="ml-auto"
+        aria-label={`Cancel request for ${loan.toolName}`}
+        onClick={() =>
+          setConfirm({ title: "Cancel your request?", body: `${what} ${who} will get an email.`, label: "Cancel request", action: () => cancel(id), ok: "Request cancelled" })
+        }
+      >
         Cancel request
       </Button>
     );
   }
-  return null;
+
+  return (
+    <>
+      {buttons}
+      <ConfirmDialog
+        open={confirm !== null}
+        title={confirm?.title ?? ""}
+        body={confirm?.body ?? ""}
+        confirmLabel={confirm?.label ?? "Confirm"}
+        onClose={() => setConfirm(null)}
+        onConfirm={async () => {
+          if (!confirm) return;
+          await confirm.action();
+          toast("success", confirm.ok);
+        }}
+      />
+    </>
+  );
 }

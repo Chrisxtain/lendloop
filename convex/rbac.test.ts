@@ -95,7 +95,8 @@ describe("loans: only the right party can act", () => {
   test("full lifecycle: request -> approve -> returned updates availability", async () => {
     const { alice, bob } = await setup();
     const toolId = await alice.mutation(api.tools.create, drill);
-    const loanId = await bob.mutation(api.loans.request, { toolId, startDate: day(1), endDate: day(4) });
+    // Starts today, so approval puts the tool out on loan immediately.
+    const loanId = await bob.mutation(api.loans.request, { toolId, startDate: day(0), endDate: day(4) });
 
     expect((await alice.query(api.loans.incoming, {}))[0]).toMatchObject({ status: "requested", role: "lender" });
     await alice.mutation(api.loans.approve, { loanId });
@@ -156,15 +157,15 @@ describe("loans: only the right party can act", () => {
     await expect(req("2026-02-30", "2026-03-02")).rejects.toThrow(/valid/);
   });
 
-  test("a tool already on loan cannot be approved twice", async () => {
+  test("two overlapping requests can't both be approved", async () => {
     const { t, alice, bob } = await setup();
     const carol = t.withIdentity({ subject: "carol", email: "carol@example.com", name: "Carol" });
     await carol.mutation(api.users.store, {});
     const toolId = await alice.mutation(api.tools.create, drill);
-    const l1 = await bob.mutation(api.loans.request, { toolId, startDate: day(1), endDate: day(2) });
-    const l2 = await carol.mutation(api.loans.request, { toolId, startDate: day(1), endDate: day(2) });
+    const l1 = await bob.mutation(api.loans.request, { toolId, startDate: day(1), endDate: day(3) });
+    const l2 = await carol.mutation(api.loans.request, { toolId, startDate: day(3), endDate: day(5) });
     await alice.mutation(api.loans.approve, { loanId: l1 });
-    await expect(alice.mutation(api.loans.approve, { loanId: l2 })).rejects.toThrow(/already out on loan/);
+    await expect(alice.mutation(api.loans.approve, { loanId: l2 })).rejects.toThrow(/overlap an existing booking/);
   });
 });
 

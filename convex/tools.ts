@@ -4,9 +4,10 @@ import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { fail, requireOwnTool, requireUser } from "./lib/auth";
 import { categoryValidator, conditionValidator, LIMITS } from "./lib/constants";
-import { cleanText } from "./lib/validate";
+import { cleanText, todayUtc } from "./lib/validate";
 import { publicName } from "./lib/views";
 import { queueLoanEvent } from "./lib/notify";
+import { approvedLoansForTool } from "./lib/bookings";
 
 const PAGE = 200;
 
@@ -126,26 +127,39 @@ export const remove = mutation({
   returns: v.null(),
   handler: async (ctx, { toolId }) => {
     const { tool } = await requireOwnTool(ctx, toolId);
-    if (tool.status === "on_loan") {
-      fail("CONFLICT", "This tool is out on loan. Mark it returned before removing it.");
-    }
-    await closeLoansAndDelete(ctx, tool, { includeActive: false });
+    const today = todayUtc();
+    const started = (await approvedLoansForTool(ctx, toolId)).some((l) => l.startDate <= today);
+    if (started) fail("CONFLICT", "This tool is out on loan. Mark it returned before removing it.");
+    // Future bookings and pending requests are cancelled and the borrowers notified.
+    await closeLoansAndDelete(ctx, tool);
     return null;
   },
 });
 
 /**
- * Shared by owner delete and admin removal: cancels open requests (and, for admin
- * removal, the active loan), notifies borrowers, then deletes the listing.
+ * Dates already booked (approved) for a tool, so borrowers can pick free dates.
+ * Data minimisation: date ranges only, never who booked them.
+ */
+export const bookings = query({
+  args: { toolId: v.id("tools") },
+  returns: v.array(v.object({ startDate: v.string(), endDate: v.string() })),
+  handler: async (ctx, { toolId }) => {
+    await requireUser(ctx);
+    const booked = await approvedLoansForTool(ctx, toolId);
+    return booked
+      .map((l) => ({ startDate: l.startDate, endDate: l.endDate }))
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  },
+});
+
+/**
+ * Shared by owner delete and admin removal: cancels open requests and bookings,
+ * notifies borrowers, then deletes the listing. Owners can only reach this when no
+ * booking has started; admins can remove a tool that is out on loan.
  * Loans keep a toolName snapshot so history stays readable.
  */
-export async function closeLoansAndDelete(
-  ctx: MutationCtx,
-  tool: Doc<"tools">,
-  opts: { includeActive: boolean },
-) {
-  const statuses = opts.includeActive ? (["requested", "approved"] as const) : (["requested"] as const);
-  for (const status of statuses) {
+export async function closeLoansAndDelete(ctx: MutationCtx, tool: Doc<"tools">) {
+  for (const status of ["requested", "approved"] as const) {
     const open = await ctx.db
       .query("loans")
       .withIndex("by_toolId_and_status", (q) => q.eq("toolId", tool._id).eq("status", status))

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useQueryParam } from "@/hooks/useQueryParam";
 import { useMutation, useQuery } from "convex/react";
 import { motion, useReducedMotion } from "motion/react";
 import { MagnifyingGlass, SealCheck, Trash } from "@phosphor-icons/react";
@@ -13,8 +14,27 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 
 export default function BoardPage() {
-  const [category, setCategory] = useState<Category | undefined>(undefined);
-  const [search, setSearch] = useState("");
+  // useSearchParams needs a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={<Skeleton className="h-64" />}>
+      <Board />
+    </Suspense>
+  );
+}
+
+const isCategory = (v: string | null): v is Category => CATEGORIES.some((c) => c.value === v);
+
+function Board() {
+  // Filter and search live in the URL (?category=garden&q=saw) so views can be shared and bookmarked.
+  const [categoryParam, setCategoryParam] = useQueryParam("category");
+  const [q, setQ] = useQueryParam("q");
+  const category = isCategory(categoryParam) ? categoryParam : undefined;
+  const setCategory = (c: Category | undefined) => setCategoryParam(c ?? null);
+  const [search, setSearch] = useState(q ?? "");
+  useEffect(() => {
+    const id = setTimeout(() => setQ(search.trim() || null), 300); // debounce URL updates while typing
+    return () => clearTimeout(id);
+  }, [search, setQ]);
   const all = useQuery(api.tools.list, { category });
   const needle = search.trim().toLowerCase();
   const tools = needle
@@ -41,10 +61,12 @@ export default function BoardPage() {
             </label>
             <input
               id="board-search"
+              name="q"
               type="search"
+              autoComplete="off"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search tools"
+              placeholder="Search tools…"
               className={`${inputClass} pl-9`}
             />
           </div>
@@ -95,7 +117,7 @@ export default function BoardPage() {
               className="flex flex-col rounded-xl border border-line bg-surface p-5"
             >
               <div className="flex items-start justify-between gap-3">
-                <h2 className="font-medium text-ink">{t.name}</h2>
+                <h2 className="min-w-0 break-words font-medium text-ink">{t.name}</h2>
                 <ToolStatusBadge status={t.status} />
               </div>
               <p className="mt-1 text-sm text-muted">

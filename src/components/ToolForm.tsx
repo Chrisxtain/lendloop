@@ -62,20 +62,22 @@ function ToolForm({ toolId, initial, onDone }: { toolId?: Id<"tools">; initial: 
       <Field label="Name" htmlFor="tool-name">
         <input
           id="tool-name"
+          name="toolName"
+          autoComplete="off"
           required
           minLength={LIMITS.toolName.min}
           maxLength={LIMITS.toolName.max}
           value={draft.name}
           onChange={(e) => set("name", e.target.value)}
-          placeholder="e.g. Cordless drill"
+          placeholder="e.g. Cordless drill…"
           className={inputClass}
-          autoFocus
         />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Category" htmlFor="tool-category">
           <select
             id="tool-category"
+            name="category"
             value={draft.category}
             onChange={(e) => set("category", e.target.value as Category)}
             className={inputClass}
@@ -90,6 +92,7 @@ function ToolForm({ toolId, initial, onDone }: { toolId?: Id<"tools">; initial: 
         <Field label="Condition" htmlFor="tool-condition">
           <select
             id="tool-condition"
+            name="condition"
             value={draft.condition}
             onChange={(e) => set("condition", e.target.value as Condition)}
             className={inputClass}
@@ -109,11 +112,13 @@ function ToolForm({ toolId, initial, onDone }: { toolId?: Id<"tools">; initial: 
       >
         <textarea
           id="tool-description"
+          name="description"
+          autoComplete="off"
           rows={3}
           maxLength={LIMITS.description.max}
           value={draft.description}
           onChange={(e) => set("description", e.target.value)}
-          placeholder="Two batteries and a charger. Please return it charged."
+          placeholder="e.g. Two batteries and a charger. Please return it charged…"
           className={`${inputClass} h-auto py-2`}
         />
       </Field>

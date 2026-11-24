@@ -58,8 +58,16 @@ export const loanEventValidator = v.union(
   v.literal("cancelled"),
   v.literal("returned"),
   v.literal("tool_removed"),
+  v.literal("booking_cancelled"), // the lender cancelled an approved booking before it started
 );
-export type LoanEvent = "requested" | "approved" | "declined" | "cancelled" | "returned" | "tool_removed";
+export type LoanEvent =
+  | "requested"
+  | "approved"
+  | "declined"
+  | "cancelled"
+  | "returned"
+  | "tool_removed"
+  | "booking_cancelled";
 
 export const LIMITS = {
   toolName: { min: 2, max: 60 },

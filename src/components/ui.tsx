@@ -2,7 +2,7 @@
 
 import { forwardRef, useEffect, useRef } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { X } from "@phosphor-icons/react";
+import { CircleNotch, X } from "@phosphor-icons/react";
 
 /* Small UI kit. Shape rule (DESIGN.md): buttons/inputs 8px, cards/dialogs 12px, badges pill. */
 
@@ -24,11 +24,12 @@ export const Button = forwardRef<
       ref={ref}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
-      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-medium transition-[background-color,color,opacity,transform] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 ${
         size === "md" ? "h-10 px-4 text-sm" : "h-8 px-3 text-[13px]"
       } ${variants[variant]} ${className}`}
       {...rest}
     >
+      {busy ? <CircleNotch size={size === "md" ? 16 : 14} className="animate-spin" /> : null}
       {children}
     </button>
   );
@@ -61,8 +62,9 @@ const loanTone: Record<string, { tone: Tone; label: string }> = {
   returned: { tone: "neutral", label: "Returned" },
 };
 
-export function LoanStatusBadge({ status, overdue }: { status: string; overdue?: boolean }) {
+export function LoanStatusBadge({ status, overdue, upcoming }: { status: string; overdue?: boolean; upcoming?: boolean }) {
   if (overdue) return <Badge tone="danger">Overdue</Badge>;
+  if (upcoming) return <Badge tone="strong">Booked</Badge>;
   const s = loanTone[status] ?? { tone: "neutral" as Tone, label: status };
   return <Badge tone={s.tone}>{s.label}</Badge>;
 }
@@ -94,7 +96,7 @@ export function Field({
 }
 
 export const inputClass =
-  "h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none";
+  "h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40";
 
 /** Native <dialog>: focus trapping, Esc to close and inert background come from the browser. */
 export function Dialog({
@@ -159,7 +161,7 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   return (
     <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>
+        <h1 className="text-balance text-2xl font-semibold tracking-tight text-ink">{title}</h1>
         {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
       </div>
       {action}
