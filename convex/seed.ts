@@ -76,6 +76,53 @@ export const demo = internalMutation({
 });
 
 /**
+ * Demo curation: hands the named listings (and their loans) to a real account, so the
+ * demo's maintainer can approve requests reviewers make. Internal only; explicit names
+ * only (never "everything"), so real users' listings are never swept up.
+ *   npx convex run seed:reassignTools '{"toEmail":"you@example.com","toolNames":["Stand mixer"]}'
+ * Skips a tool if the new owner has borrowed it (an owner can't be their own borrower).
+ */
+export const reassignTools = internalMutation({
+  args: { toEmail: v.string(), toolNames: v.array(v.string()) },
+  returns: v.object({ moved: v.array(v.string()), skipped: v.array(v.string()) }),
+  handler: async (ctx, { toEmail, toolNames }) => {
+    const target = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", toEmail.trim().toLowerCase()))
+      .unique();
+    if (!target) throw new Error(`No user with email ${toEmail}. Sign in once on this deployment first.`);
+    const moved: string[] = [];
+    const skipped: string[] = [];
+    const tools = (await ctx.db.query("tools").take(500)).filter((t) => toolNames.includes(t.name));
+    for (const tool of tools) {
+      if (tool.ownerId === target._id) {
+        skipped.push(`${tool.name} (already theirs)`);
+        continue;
+      }
+      const loans = [];
+      for (const status of ["requested", "approved", "declined", "cancelled", "returned"] as const) {
+        loans.push(
+          ...(await ctx.db
+            .query("loans")
+            .withIndex("by_toolId_and_status", (q) => q.eq("toolId", tool._id).eq("status", status))
+            .take(200)),
+        );
+      }
+      if (loans.some((l) => l.borrowerId === target._id)) {
+        skipped.push(`${tool.name} (they borrowed it)`);
+        continue;
+      }
+      await ctx.db.patch("tools", tool._id, { ownerId: target._id });
+      for (const loan of loans) await ctx.db.patch("loans", loan._id, { ownerId: target._id });
+      moved.push(`${tool.name} (+${loans.length} loan${loans.length === 1 ? "" : "s"})`);
+    }
+    const missing = toolNames.filter((n) => !tools.some((t) => t.name === n));
+    for (const n of missing) skipped.push(`${n} (not found)`);
+    return { moved, skipped };
+  },
+});
+
+/**
  * Demo of the overdue-reminder workflow: `npx convex run seed:demoOverdue`.
  * Teodor borrowed Marisol's hedge trimmer and it was due back 2 days ago.
  * Idempotent: does nothing if that tool already has an active loan. Run seed:demo first.

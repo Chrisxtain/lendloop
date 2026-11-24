@@ -63,9 +63,12 @@ You don't need a real email address. The demo uses Clerk's test mode:
 3. **Password:** choose your own, at least 8 characters (common passwords are rejected), for example `LendLoop-Demo-2026!`.
 4. **Verification code:** when asked for one (at sign-up, or when signing in from a new device), enter **`424242`**. This is the code, not the password.
 
-The board is pre-filled with a few demo neighbours and their tools, including one loan that is already overdue, so the reminder history is visible straight away.
+**What's on the board:**
 
-**To see the full lending flow,** open a second browser (or a private window) and sign up as a second neighbour, for example `sam+clerk_test@example.com`. List a tool as one person, request it as the other, then approve it as the first.
+- **Most tools are listed by me (Christian Tochukwu).** Request one and I'll approve it from my own account. My requests inbox is emailed to me, and you'll see the status change to "On loan" (or "Booked" for later dates) on your side.
+- **Two tools belong to demo neighbours** (Marisol's hedge trimmer and Teodor's tent). Their accounts can't sign in, so **requests on them stay pending**: a live demonstration that only a tool's owner can approve. Not even an admin can approve on someone else's behalf. Marisol's hedge trimmer also carries an overdue loan, so the reminder history is visible straight away.
+
+**To see the full lending flow without waiting for me,** open a second browser (or a private window) and sign up as a second neighbour, for example `sam+clerk_test@example.com`. List a tool as one person, request it as the other, then approve it as the first.
 
 > Emails are delivered by the n8n automation server. In this demo, outgoing email is redirected to the developer's inbox (the email provider is in test mode without a custom domain), so you'll see "Email sent just now" on the loan rather than an email in your own inbox. The n8n server is self-hosted for this demo; if it's offline, the app keeps working and undelivered notifications are retried, then listed under **Admin → Automation errors**.
 
@@ -361,6 +364,12 @@ On start, the import step loads the three workflows from `n8n/workflows/`, creat
 Then, in n8n (http://localhost:5678): create the owner account, open **Credentials → Resend API** and set the value to `Bearer re_your_key`. That's the only manual step, and later restarts never overwrite it.
 
 To try the reminder job without waiting for 09:00: `npx convex run seed:demoOverdue` (creates one overdue demo loan), then **Overdue reminders → Execute workflow** in n8n, or `node scripts/n8n-local.mjs execute --id=lendloopOverdue1`.
+
+To approve requests on the sample tools yourself, sign in once with your own account, then hand those listings to it (internal function, explicit names only):
+
+```bash
+npx convex run seed:reassignTools '{"toEmail":"you@example.com","toolNames":["Stand mixer","Circular saw"]}'
+```
 
 > **Resend test mode:** without a verified domain, Resend only delivers to your own address. Set `NOTIFY_OVERRIDE_TO` in `n8n/.env` to it; each email then shows who it was really meant for.
 
