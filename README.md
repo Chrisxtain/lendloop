@@ -59,8 +59,9 @@ What makes it more than a list:
 You don't need a real email address. The demo uses Clerk's test mode:
 
 1. Click **Sign in to lend or borrow**, then **Sign up**.
-2. Use any email ending in `+clerk_test@example.com`, for example `jane+clerk_test@example.com`, with any password.
-3. Whenever you're asked for a verification code (at sign-up, or when signing in from a new device), enter **`424242`**.
+2. **Email:** any address ending in `+clerk_test@example.com`, for example `jane+clerk_test@example.com` (the `+clerk_test` part is what makes it a test account).
+3. **Password:** choose your own, at least 8 characters (common passwords are rejected), for example `LendLoop-Demo-2026!`.
+4. **Verification code:** when asked for one (at sign-up, or when signing in from a new device), enter **`424242`**. This is the code, not the password.
 
 The board is pre-filled with a few demo neighbours and their tools, including one loan that is already overdue, so the reminder history is visible straight away.
 
