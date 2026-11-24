@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" width="760" height="330" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
   <title>Loan lifecycle</title>
-  <desc>A loan starts as requested. The lender approves or declines it, or the borrower cancels it. An approved loan becomes returned when the lender marks it returned, or cancelled if an admin removes the listing.</desc>
+  <desc>A loan starts as requested. The lender approves or declines it, or the borrower cancels it. An approved loan (a booking) becomes returned when the lender marks it returned after it has started, or cancelled if either side cancels before it starts or an admin removes the listing.</desc>
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#52525b"/>
@@ -51,8 +51,10 @@
   <text class="lbl" x="262" y="132"><tspan class="who">borrower</tspan> cancels</text>
 
   <path class="edge" d="M395,108 L395,206" marker-end="url(#a)"/>
-  <text class="lbl" x="402" y="155"><tspan class="who">admin</tspan> removes</text>
-  <text class="lbl" x="402" y="170">the listing</text>
+  <text class="lbl" x="402" y="140"><tspan class="who">either side</tspan>, before</text>
+  <text class="lbl" x="402" y="155">it starts, or <tspan class="who">admin</tspan></text>
+  <text class="lbl" x="402" y="170">removes the listing</text>
 
-  <text class="note" x="34" y="296">Each step is allowed only for the person named and only from the state shown, and triggers exactly one email.</text>
+  <text class="note" x="34" y="290">Each step is allowed only for the person named and only from the state shown, and triggers exactly one email.</text>
+  <text class="note" x="34" y="308">An approved loan is a booking: several per tool are fine if their dates don't overlap; "returned" only once it has started.</text>
 </svg>

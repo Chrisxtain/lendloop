@@ -15,7 +15,7 @@ with automated email notifications and overdue reminders running in the backgrou
 ![Clerk](https://img.shields.io/badge/Clerk-auth-6C47FF?logo=clerk&logoColor=white)
 ![n8n](https://img.shields.io/badge/n8n-automation-EA4B71?logo=n8n&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind_v4-06B6D4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-29_passing-15803d)
+![Tests](https://img.shields.io/badge/tests-44_passing-15803d)
 
 <img src="docs/screenshots/01-landing.png" alt="LendLoop landing page showing the tagline and a live list of tools available to borrow" width="900"/>
 
@@ -33,8 +33,8 @@ with automated email notifications and overdue reminders running in the backgrou
 | Environment variables | [Environment variables](#environment-variables), plus [`.env.example`](.env.example) and [`n8n/.env.example`](n8n/.env.example) |
 | Architecture | [Architecture](#architecture), [Automation design](#automation-design-n8n) |
 | Security and data-minimisation decisions | [Security decisions](#security-decisions), [Data minimisation](#data-minimisation), [Roles and access control](#roles-and-access-control) |
-| Production note | [What I would change for production](#what-i-would-change-for-production) |
-| Bonus: automation activity on each loan | "Email sent / Reminder sent 2 days ago" on every loan ([tour](#3-requests-and-loans)) |
+| Production note | [What I would change for production](#what-i-would-change-for-production), plus [Known limitations and trade-offs](#known-limitations-and-trade-offs) |
+| Bonus: automation activity on each loan | "Email sent / Reminder sent 2 days ago" on every loan ([tour](#3-requests-loans-and-bookings)) |
 
 ---
 
@@ -80,25 +80,25 @@ Signed-in neighbours see every tool with its availability, can filter by categor
 
 ### 2. Asking to borrow
 
-Pick the dates (up to 30 days) and add a short note for the owner. The dates are checked twice: in the form, and again on the server, so the rules can't be bypassed.
+Pick the dates (up to 30 days) and add a short note for the owner. A tool can be **booked for later dates even while it's out on loan**: the form lists the dates that are already taken (dates only, never who took them) and warns straight away if your dates clash. The same rules are enforced again on the server, so they can't be bypassed.
 
-<img src="docs/screenshots/05-request-dialog.png" alt="Request dialog with a date range and a note to the owner" width="900"/>
+<img src="docs/screenshots/11-booked-dates.png" alt="Request dialog for a tool that is out on loan: it lists the already-booked dates and warns that the chosen dates overlap a booking" width="900"/>
 
-### 3. Requests and loans
+### 3. Requests, loans and bookings
 
-Owners answer requests; borrowers track what they've asked for. Items are grouped by what needs attention first (waiting, on loan, history), each active loan shows **"Due back in 2 days"** or **"3 days overdue"**, and the latest automation activity ("Email sent", "Reminder sent 2 days ago") appears on each loan.
+Owners answer requests; borrowers track what they've asked for. Items are grouped by what needs attention first: **waiting for an answer**, **out on loan** (with **"Due back in 2 days"** or **"1 day overdue"**), **upcoming bookings** (**"Starts in 4 days"**), then history. Either side can **cancel a booking before it starts**, after a confirmation, and the other person is emailed. The latest automation activity ("Email sent just now", "Reminder sent 2 days ago") appears on every loan.
 
-<img src="docs/screenshots/03-requests.png" alt="Requests page showing an active loan with a due-back countdown and a Mark returned button" width="900"/>
+<img src="docs/screenshots/12-upcoming-booking.png" alt="Requests page: two loans out (one overdue in red) and an upcoming booking that starts in 4 days, each showing 'Email sent'" width="900"/>
 
 ### 4. My listings
 
-List, edit or delete your own tools. A tool can't be deleted while it's out on loan.
+List, edit or delete your own tools. A tool can't be deleted while it's out on loan; deleting one with only future bookings cancels them and tells each borrower.
 
 <img src="docs/screenshots/04-listings.png" alt="My listings page" width="900"/>
 
 ### 5. Admin
 
-Admins manage members (grant or revoke **Trusted Lender**), remove any listing, see every loan across the neighbourhood, review failed automation runs, and read an **audit log** of every admin action.
+Admins manage members (grant or revoke **Trusted Lender**), remove any listing, see every loan across the neighbourhood, and read an **audit log** of every admin action. Failed automation runs appear under **Automation errors** (with an open-count badge on the tab): a notification the backend couldn't deliver can be re-sent with **Retry now**, and any error can be **marked resolved** once handled.
 
 <img src="docs/screenshots/06-admin-members.png" alt="Admin members table with roles and Trusted Lender controls" width="900"/>
 
@@ -128,6 +128,8 @@ Admins manage members (grant or revoke **Trusted Lender**), remove any listing, 
  A marks it returned ────────────────────────►  email to B: "Returned, thanks!"   (reminders stop)
 ```
 
+Meanwhile, neighbour C can **book the drill for the following weekend** while B still has it, as long as the dates don't overlap. The drill shows "On loan" only while a booking is actually running.
+
 Behind the scenes there are three cooperating parts:
 
 | Part | Role in one sentence |
@@ -148,13 +150,15 @@ This project was built to production standards, not just to make the screens wor
 
 **3. Retries can never send a duplicate.** Networks fail, so everything retries. Each email and each write-back carries a unique **idempotency key**, so a retry can't create a second reminder or a second record. This is enforced at three levels: the overdue query, the database write, and the email provider's own idempotency header.
 
-**4. Failures are visible.** Failed deliveries retry with growing delays (30 s → 2 min → 10 min → 30 min). If something still fails, it's recorded and shown to admins in the app and on the affected loan. A dedicated n8n **error workflow** catches anything else.
+**4. Failures are visible, and recoverable.** Failed deliveries retry with growing delays (30 s → 2 min → 10 min → 30 min). If something still fails, it's recorded and shown to admins in the app and on the affected loan, where an admin can **Retry now** once the cause is fixed (the error clears itself when the email goes through). A dedicated n8n **error workflow** catches anything else.
 
-**5. Privacy by default (data minimisation).** The public page shows only tool names and categories. Signed-in users see display names, never emails. The automation server receives only what each email needs. When someone has no name set, they get a neutral handle like "Neighbour K3F9" instead of part of their email. That last one was a bug I caught during browser testing, and a test now guards it.
+**5. Bookings that can't double-book.** Several people can book the same tool for different dates. The overlap check runs inside the same database transaction as the approval, so two overlapping approvals can't both succeed, even if two lenders' clicks race. An hourly backend job flips a tool to "On loan" when a booking's start date arrives.
 
-**6. Tested, including the tests themselves.** 29 automated tests cover the permission rules and the integration (signatures, replays, idempotency, retries, payload contents). Key tests were **sabotage-checked**: I deliberately broke the rule under test and confirmed the test failed, so the suite is proven to catch real regressions. A live smoke-test script checks the deployed endpoints.
+**6. Privacy by default (data minimisation).** The public page shows only tool names and categories. Signed-in users see display names, never emails. The automation server receives only what each email needs. When someone has no name set, they get a neutral handle like "Neighbour K3F9" instead of part of their email. That last one was a bug I caught during browser testing, and a test now guards it.
 
-**7. Thoughtful UX.** Loading skeletons that match the final layout, empty states that tell you what to do next, human-readable error messages from the server, a due-back countdown, dark mode, a phone layout where no tab is hidden off-screen, and full keyboard and screen-reader labelling.
+**7. Tested, including the tests themselves.** 44 automated tests cover the permission rules, the bookings logic and the integration (signatures, replays, idempotency, retries, admin retry, payload contents). Key tests were **sabotage-checked**: I deliberately broke the rule under test and confirmed the test failed, so the suite is proven to catch real regressions. A live smoke-test script checks the deployed endpoints.
+
+**8. Thoughtful, accessible UX.** Loading skeletons that match the final layout, empty states that tell you what to do next, human-readable errors with a next step, due-back and starts-in countdowns, confirmations before anything irreversible that emails someone, filters and tabs kept in the URL (shareable and Back-button friendly), dark mode, and a phone layout where no tab is hidden off-screen. The UI was audited against the [Web Interface Guidelines](https://github.com/vercel-labs/web-interface-guidelines) and fixed: visible focus rings, a skip link, decorative icons hidden from screen readers, unique button labels, named form fields, and `theme-color` for both themes.
 
 ---
 
@@ -175,10 +179,12 @@ This project was built to production standards, not just to make the screens wor
 ### The loan lifecycle
 
 <p align="center">
-<img src="docs/diagrams/loan-lifecycle.svg" alt="Loan lifecycle: requested, then approved by the lender, declined by the lender, or cancelled by the borrower. Approved becomes returned when the lender marks it returned, or cancelled if an admin removes the listing." width="720"/>
+<img src="docs/diagrams/loan-lifecycle.svg" alt="Loan lifecycle: requested, then approved by the lender, declined by the lender, or cancelled by the borrower. Approved becomes returned when the lender marks it returned (once it has started), or cancelled before it starts by either side, or by an admin removing the listing." width="720"/>
 </p>
 
-Each transition is checked for **who** is acting (lender, borrower or admin) and for the **current state** (you can't approve a declined request). Every transition triggers exactly one notification.
+Each transition is checked for **who** is acting (lender, borrower or admin) and for the **current state** (you can't approve a declined request, mark a booking returned before it starts, or cancel a loan that is already out). Every transition triggers exactly one notification.
+
+An approved loan is a **booking**. A tool can hold several bookings as long as their dates don't overlap ([`convex/lib/bookings.ts`](convex/lib/bookings.ts)); its status is "On loan" only while a booking has started, recomputed after every change and by an hourly cron ([`convex/crons.ts`](convex/crons.ts)).
 
 ### Data model ([`convex/schema.ts`](convex/schema.ts))
 
@@ -186,9 +192,9 @@ Each transition is checked for **who** is acting (lender, borrower or admin) and
 |---|---|
 | `users` | Login identity, email, display name, role (`user`/`admin`), Trusted Lender flag |
 | `tools` | Owner, name, category, condition, description, availability |
-| `loans` | Tool (plus a name snapshot so history survives deletion), lender, borrower, dates, status |
+| `loans` | Tool (plus a name snapshot so history survives deletion), lender, borrower, dates, status; indexed by tool, by end date (overdue) and by start date (bookings starting) |
 | `automationEvents` | Per-loan activity ("Email sent", "Reminder sent") with a unique idempotency key |
-| `automationErrors` | Failed automation runs, visible to admins |
+| `automationErrors` | Failed automation runs, visible to admins; backend delivery failures also keep the loan + event so they can be retried, and when they were retried or resolved |
 | `auditLog` | Every admin action |
 
 ---
@@ -203,13 +209,15 @@ Each transition is checked for **who** is acting (lender, borrower or admin) and
 | Request to borrow (not your own tool) | | ✅ | ✅ |
 | Approve / decline / mark returned on **own** tools | | ✅ | ✅ |
 | Cancel **own** pending request | | ✅ | ✅ |
+| Cancel a booking **you're part of** before it starts (borrower or lender) | | ✅ | ✅ |
 | Remove **any** listing | | | ✅ |
 | View all loans and members | | | ✅ |
 | Grant / revoke Trusted Lender | | | ✅ |
+| Retry failed notifications / mark automation errors resolved | | | ✅ |
 
 - The admin role is assigned on the server from an allowlist (`ADMIN_EMAILS`) and **re-checked at every sign-in**, so removing an email revokes admin. There is no endpoint that sets a role.
-- Admin powers are separate functions: an admin still **cannot** approve someone else's loan.
-- Every rule above has a test in [`convex/rbac.test.ts`](convex/rbac.test.ts).
+- Admin powers are separate functions: an admin still **cannot** approve or cancel someone else's loan.
+- Every rule above has a test in [`convex/rbac.test.ts`](convex/rbac.test.ts) or [`convex/bookings.test.ts`](convex/bookings.test.ts).
 
 ---
 
@@ -231,6 +239,8 @@ Convex mutation ──(same transaction)──► scheduler ──► delivery a
 - **Reply first, then work:** n8n acknowledges within milliseconds, so a slow email provider can't time out the backend.
 - **Smart retries:** network errors, timeouts, rate limits and server errors are retried with backoff. A wrong secret (`401`) isn't retried, because it won't fix itself.
 - **No log flooding:** invalid signatures get a quiet `401` and don't trigger the error workflow, so an attacker can't spam the error log.
+- **Manual recovery:** if all automatic retries fail (say n8n was down for an hour), an admin clicks **Retry now** in Admin → Automation errors. That starts a fresh delivery with full retries; when it succeeds, the error marks itself resolved. It's safe to repeat, because n8n and Resend dedupe by event ID.
+- **Events covered:** new request, approval, decline, cancellation by the borrower, **booking cancelled by the lender**, return, and listing removed.
 
 ### 2. Overdue reminders
 
@@ -251,6 +261,8 @@ Attached to both workflows as their error workflow. Any run that fails after its
 | Retried write-backs | A repeated key returns `200 duplicate`: safe, never an error |
 | Temporary outages | Retries with waits in n8n; backoff retries in Convex |
 | Silent failure | Everything that runs out of retries lands in the admin view and on the loan |
+| Failure after the retry window | Admin **Retry now**; a repeat failure re-opens the same error row instead of adding duplicates |
+| Double-booked tool | Overlap check inside the approval transaction (serializable), plus an up-front check when requesting |
 
 ---
 
@@ -271,6 +283,7 @@ Attached to both workflows as their error workflow. Any run that fails after its
 |---|---|---|
 | Public page | Tool name + category | Owner, description, IDs |
 | Board | Owner display name + Trusted badge | Owner email and ID |
+| Booked dates (request form) | Date ranges only | Who booked them |
 | Display names | Real name, else "Neighbour K3F9" | Never derived from the email (tested) |
 | Notification to n8n | Recipient's name + email, other person's **name**, tool, dates, note | Other person's email, IDs |
 | Overdue list to n8n | Borrower name + email, lender **name**, tool, dates | Lender email |
@@ -282,14 +295,15 @@ Attached to both workflows as their error workflow. Any run that fails after its
 ## Testing
 
 ```bash
-npm test                              # 29 tests: vitest + convex-test
+npm test                              # 44 tests: vitest + convex-test
 node scripts/smoke-automation.mjs     # live checks against a deployed backend
 ```
 
-- **Permission tests** ([`convex/rbac.test.ts`](convex/rbac.test.ts), 18): public data shape, signed-out access, role assignment and revocation, owner-only edits, lender/borrower-only actions, admin-only functions, audit log, validation, and no email leakage.
+- **Permission tests** ([`convex/rbac.test.ts`](convex/rbac.test.ts), 18): public data shape, signed-out access, role assignment and revocation, owner-only edits, lender/borrower-only actions, admin-only functions, audit log, validation, overlapping approvals, and no email leakage.
+- **Bookings and recovery tests** ([`convex/bookings.test.ts`](convex/bookings.test.ts), 15): future bookings while a tool is out, overlap rejection on request and approval, the hourly status job (idempotent), return with the next booking already started, no early return, booked dates without identities, cancel rules for borrower/lender/outsider, deleting with future bookings, and admin retry/resolve (re-schedule, auto-resolve on success, re-open on repeat failure, admin-only).
 - **Integration tests** ([`convex/automation.test.ts`](convex/automation.test.ts), 11): valid, unsigned, wrong-secret, tampered and replayed requests; secret rotation; idempotent write-backs; overdue filtering; error reports; minimal payloads; signed delivery; retry scheduling; recording the final failure; no retry on 401; exactly one delivery per transition.
 - **Live smoke test:** 5 checks against the real deployment (signed → 200; unsigned, wrong secret and replayed → 401; malformed → 400).
-- **Manual browser QA** on desktop, phone and dark mode with two test accounts.
+- **Live browser runs** on the deployed site: the lend/borrow/remind flows, and a scripted bookings run (book while out, booked-dates warning, approve a future booking, cancel with confirmation, deep links). Plus manual QA on desktop, phone and dark mode.
 
 ---
 
@@ -405,6 +419,28 @@ These were checked against the deployed system, not only in tests:
 | Signed-but-broken webhook (forced failure) | Error workflow reported it; visible in Admin → Automation errors |
 | Unsigned / forged / replayed calls to n8n and the backend | All rejected with `401` |
 | Public access to the site | No login wall; signed-out visitors see only tool names and categories |
+| Book a tool for later dates while it's out | Request form listed the booked dates and warned on a clash; the future booking was approved, showed "Booked · Starts in 4 days" and "Email sent" |
+| Cancel a booking | Confirmation shown first; cancelled, other party notified |
+| Deep links | `?tab=mine` and `?category=camping&q=lantern` opened exactly that view |
+
+---
+
+## Known limitations and trade-offs
+
+Decisions I made knowingly, and what I'd do about each:
+
+| Limitation | Why it's like this | What I'd do next |
+|---|---|---|
+| **The live demo's n8n runs on my PC via a free Cloudflare quick tunnel** | Free and enough to prove the integration; the assignment only requires a runnable docker-compose setup | Move n8n to an always-on host with a fixed URL. When the tunnel drops, notifications retry, then show as automation errors that an admin can **Retry now** |
+| **`docker compose up` hasn't been run end to end on my machine** (no Docker installed) | I ran the same n8n version with `npx`. The compose file parses, and every command it runs (import, credential seed, publish) was tested individually against a running n8n | Run the full compose stack once in CI |
+| **Dates are UTC; loans are whole days** | Keeps overlap checks and "overdue" unambiguous across devices | Store each neighbourhood's time zone; send reminders at a local hour |
+| **A booking's dates can't be edited** | Cancel and re-request covers it with far less logic | Allow edits that re-check overlaps and notify the other party |
+| **"On loan" flips at the start date via an hourly job** | Queries can't read the clock, so status is materialised | Fine at this scale; up to an hour of lag on the start day |
+| **Lists cap at 200 rows; search runs in the browser** | Plenty for one neighbourhood; keeps queries bounded | Pagination and server-side search |
+| **Admin role from an email allowlist** | Simple, auditable, can't be granted from the client | Owner-managed roles (Clerk organisations or an admin table) |
+| **Clerk development instance** | Production needs a custom domain; dev mode enables the `+clerk_test` demo logins | Clerk production instance on a real domain |
+| **n8n-side failures can't be retried from the app** | Only Convex knows how to re-send its own deliveries; n8n runs are re-run from n8n's executions list | Store the failed payload reference and expose a re-run |
+| **Sign-ups use Clerk's bot protection**, so automated browsers can't sign up | Intended; it's protection working | n/a (test accounts are created through Clerk's API) |
 
 ---
 
@@ -431,15 +467,19 @@ convex/                  backend
   lib/auth.ts            permission guards (the security boundary)
   lib/signing.ts         HMAC signing, replay window, rotation
   lib/validate.ts        input validation
+  lib/bookings.ts        overlap rule + "on loan right now" status
   users.ts tools.ts loans.ts admin.ts     public API
-  notifications.ts       backend -> n8n delivery with retries
+  notifications.ts       backend -> n8n delivery with retries (+ admin retry/resolve hooks)
   http.ts automation.ts  n8n -> backend signed endpoints
+  crons.ts               hourly job that starts bookings
   seed.ts                demo data (internal only)
-  *.test.ts              test suites
+  *.test.ts              test suites (rbac, bookings, automation)
 src/                     frontend
   app/page.tsx           public landing page
-  app/(app)/             board, listings, requests, admin
+  app/(app)/             board, listings, requests, admin (thin pages)
   components/            UI kit, app shell, dialogs, loan card
+  components/admin/      one component per admin tab
+  hooks/                 user sync, URL-backed state (tabs/filters)
 n8n/workflows/           exported workflows (no secrets)
 n8n/credentials/         Resend credential placeholder (no secret; you add the key in n8n)
 docker-compose.yml       n8n with auto-import + publish and an optional tunnel
